@@ -10,4 +10,4 @@ Line thickness comes from the exported JSON `ratio` field (circle diameter / thr
 ?ratio=600
 ```
 
-To add another sequence, drop a `.zip` in `public/sequences/` and rebuild. A button is created automatically from the filename (for example `mona-lisa.zip` → "Mona Lisa").
+To add another sequence, drop a `.zip` in `public/sequences/` and rebuild. A button is created automatically from the filename (for example `mona-lisa.zip` → "Mona Lisa"). Use **lowercase** filenames — GitHub Pages is case-sensitive (`OFIR.zip` and `ofir.zip` are different files).

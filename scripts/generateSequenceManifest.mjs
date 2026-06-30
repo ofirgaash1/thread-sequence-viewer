@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const sequencesRoot = path.join(root, "public", "sequences");
+export const sequencesRoot = path.join(root, "public", "sequences");
 const outputFile = path.join(root, "src", "generated", "sequenceManifest.ts");
 
 function humanizeZipName(filename) {
@@ -23,17 +23,34 @@ function zipFilenameToId(filename) {
     .replace(/^-|-$/g, "");
 }
 
-export function generateSequenceManifest() {
+function listSequenceZipFiles() {
   fs.mkdirSync(sequencesRoot, { recursive: true });
-  const files = fs
+  return fs
     .readdirSync(sequencesRoot)
     .filter((name) => name.toLowerCase().endsWith(".zip"))
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
 
+function sequenceZipUrlName(filename) {
+  return filename.toLowerCase();
+}
+
+export function copySequenceZipsTo(outDir) {
+  fs.mkdirSync(outDir, { recursive: true });
+  for (const file of listSequenceZipFiles()) {
+    fs.copyFileSync(
+      path.join(sequencesRoot, file),
+      path.join(outDir, sequenceZipUrlName(file)),
+    );
+  }
+}
+
+export function generateSequenceManifest() {
+  const files = listSequenceZipFiles();
   const manifest = files.map((file) => ({
     id: zipFilenameToId(file),
     label: humanizeZipName(file),
-    file,
+    file: sequenceZipUrlName(file),
   }));
 
   fs.mkdirSync(path.dirname(outputFile), { recursive: true });

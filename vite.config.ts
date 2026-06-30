@@ -1,10 +1,12 @@
+import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { generateSequenceManifest } from "./scripts/generateSequenceManifest.mjs";
-
-const sequencesRoot = path.resolve("public", "sequences");
+import {
+  copySequenceZipsTo,
+  generateSequenceManifest,
+  sequencesRoot,
+} from "./scripts/generateSequenceManifest.mjs";
 
 function sequencesManifestPlugin(): Plugin {
   const regenerate = () => generateSequenceManifest();
@@ -12,6 +14,9 @@ function sequencesManifestPlugin(): Plugin {
   return {
     name: "sequences-manifest",
     buildStart: regenerate,
+    closeBundle() {
+      copySequenceZipsTo(path.resolve("docs", "sequences"));
+    },
     configureServer(server) {
       regenerate();
       server.watcher.add(sequencesRoot);
