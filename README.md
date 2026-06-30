@@ -4,13 +4,10 @@ A minimal public viewer for physical thread/string-art sequence exports.
 
 The page autoloads `mona-lisa.zip`, autoplays, and supports drag/zoom on desktop and mobile.
 
-URL parameters:
+Line thickness comes from the exported JSON `ratio` field (circle diameter / thread width, same as peel's `optimizationResolution / lineWidthPx`). Optional URL override:
 
 ```text
-?diameter=50&width=2
+?ratio=600
 ```
 
-- `diameter`: circle diameter in centimeters
-- `width`: thread width in millimeters
-
-To add another sequence, place a zip in `public/sequences/` and add it to `SEQUENCES` in `src/ThreadSequenceViewer.tsx`.
+To add another sequence, drop a `.zip` in `public/sequences/` and rebuild. A button is created automatically from the filename (for example `mona-lisa.zip` → "Mona Lisa").

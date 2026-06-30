@@ -7,6 +7,10 @@ import {
   useState,
 } from "react";
 import { strFromU8, unzipSync } from "fflate";
+import {
+  SEQUENCE_MANIFEST,
+  type SequenceManifestEntry,
+} from "./generated/sequenceManifest";
 
 type PhysicalDrawInstruction =
   | {
@@ -30,6 +34,8 @@ type PhysicalDrawInstruction =
 type PhysicalSequenceExport = {
   safetyMode?: string;
   nailCount?: number;
+  /** Circle diameter / thread width (peel: optimizationResolution / lineWidthPx). */
+  ratio?: number;
   palette?: { name: string; rgb: [number, number, number] }[];
   audit?: {
     imageLineCount?: number;
@@ -155,6 +161,8 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 1000;
 const CULL_ZOOM_THRESHOLD = 4;
 const WHEEL_ZOOM_DENOMINATOR = 320;
+const DEFAULT_DIAMETER_TO_THREAD_RATIO = 2000;
+const REFERENCE_THREAD_WIDTH_MM = 1;
 
 function isPhysicalSequenceExport(value: unknown): value is PhysicalSequenceExport {
   if (!value || typeof value !== "object") return false;
@@ -162,19 +170,27 @@ function isPhysicalSequenceExport(value: unknown): value is PhysicalSequenceExpo
   return Array.isArray(maybe.instructions);
 }
 
-const SEQUENCES: SequenceOption[] = [
-  {
-    id: "mona-lisa",
-    label: "Mona Lisa",
-    url: `${import.meta.env.BASE_URL}sequences/mona-lisa.zip`,
-  },
-];
+function manifestEntryToOption(entry: SequenceManifestEntry): SequenceOption {
+  return {
+    id: entry.id,
+    label: entry.label,
+    url: `${import.meta.env.BASE_URL}sequences/${encodeURIComponent(entry.file)}`,
+  };
+}
 
-function numberParam(name: string, fallback: number): number {
-  const value = new URLSearchParams(window.location.search).get(name);
-  if (value === null) return fallback;
+function ratioParam(): number | null {
+  const value = new URLSearchParams(window.location.search).get("ratio");
+  if (value === null) return null;
   const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function lineWidthFromDiameterToThreadRatio(ratio: number): number {
+  const safeRatio = Math.max(1, ratio);
+  return Math.max(
+    0.001,
+    (RADIUS * 2 * REFERENCE_THREAD_WIDTH_MM) / safeRatio,
+  );
 }
 
 function parsePhysicalSequenceJson(text: string): PhysicalSequenceExport {
@@ -213,9 +229,17 @@ async function loadPhysicalSequence(option: SequenceOption): Promise<{
 }> {
   const response = await fetch(option.url);
   if (!response.ok) {
-    throw new Error(`Could not load ${option.label}`);
+    throw new Error(`Could not load ${option.label} (${response.status})`);
   }
   const bytes = new Uint8Array(await response.arrayBuffer());
+  if (
+    option.url.toLowerCase().endsWith(".zip") &&
+    (bytes.length < 2 || bytes[0] !== 0x50 || bytes[1] !== 0x4b)
+  ) {
+    throw new Error(
+      `Could not load ${option.label}: zip file missing from deployment`,
+    );
+  }
   const loaded = option.url.toLowerCase().endsWith(".zip")
     ? readZipJson(bytes)
     : {
@@ -773,7 +797,12 @@ export function ThreadSequenceViewer() {
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [stepsPerSecond, setStepsPerSecond] = useState(160);
-  const [activeSequenceId, setActiveSequenceId] = useState(SEQUENCES[0]!.id);
+  const sequences = useMemo(
+    () => SEQUENCE_MANIFEST.map(manifestEntryToOption),
+    [],
+  );
+  const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
+  const initialSequenceLoadedRef = useRef(false);
   const [canvasResizeTick, setCanvasResizeTick] = useState(0);
   const [cullTransform, setCullTransform] = useState<ZoomTransform>({
     x: 0,
@@ -807,12 +836,18 @@ export function ThreadSequenceViewer() {
   }, [sequence?.palette]);
   const maxStep = instructions.length;
   const completed = maxStep > 0 && step >= maxStep;
-  const circleDiameterCm = useMemo(() => numberParam("diameter", 60), []);
-  const threadWidthMm = useMemo(() => numberParam("width", 0.3), []);
-  const lineWidth = useMemo(() => {
-    const diameterMm = Math.max(1, circleDiameterCm * 10);
-    return Math.max(0.001, (RADIUS * 2 * threadWidthMm) / diameterMm);
-  }, [circleDiameterCm, threadWidthMm]);
+  const diameterToThreadRatio = useMemo(() => {
+    const urlRatio = ratioParam();
+    if (urlRatio !== null) return urlRatio;
+    if (sequence?.ratio !== undefined && sequence.ratio > 0) {
+      return sequence.ratio;
+    }
+    return DEFAULT_DIAMETER_TO_THREAD_RATIO;
+  }, [sequence?.ratio]);
+  const lineWidth = useMemo(
+    () => lineWidthFromDiameterToThreadRatio(diameterToThreadRatio),
+    [diameterToThreadRatio],
+  );
   const lineOpacity = 1;
   const drawCommands = useMemo<(DrawCommand | null)[]>(() => {
     if (nailCount <= 1) return instructions.map(() => null);
@@ -982,8 +1017,14 @@ export function ThreadSequenceViewer() {
   }, [setZoomTransformImmediate]);
 
   useEffect(() => {
-    void loadSequence(SEQUENCES[0]!);
-  }, [loadSequence]);
+    if (sequences.length === 0) {
+      setError("No sequences found in public/sequences/");
+      return;
+    }
+    if (initialSequenceLoadedRef.current) return;
+    initialSequenceLoadedRef.current = true;
+    void loadSequence(sequences[0]!);
+  }, [loadSequence, sequences]);
 
   useEffect(() => {
     return () => {
@@ -1101,7 +1142,7 @@ export function ThreadSequenceViewer() {
     <div className="svg-viewer-page">
       <section className="viewer-controls">
         <div className="sequence-buttons">
-          {SEQUENCES.map((option) => (
+          {sequences.map((option) => (
             <button
               key={option.id}
               type="button"

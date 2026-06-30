@@ -4,8 +4,8 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "node scripts/generateSequenceManifest.mjs && vite",
+    "build": "node scripts/generateSequenceManifest.mjs && tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
