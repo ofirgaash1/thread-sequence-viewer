@@ -110,6 +110,14 @@ type CanvasLineRenderState = {
   renderKey: string;
 };
 
+type PinchState = {
+  distance: number;
+  midpointX: number;
+  midpointY: number;
+  transform: ZoomTransform;
+  anchor: { x: number; y: number };
+};
+
 type CanvasMetrics = {
   cssWidth: number;
   cssHeight: number;
@@ -777,6 +785,8 @@ export function ThreadSequenceViewer() {
   const zoomTransformRef = useRef<ZoomTransform>({ x: 0, y: 0, k: 1 });
   const renderFrameRef = useRef<number | null>(null);
   const canvasLineStateRef = useRef<CanvasLineRenderState | null>(null);
+  const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
+  const pinchRef = useRef<PinchState | null>(null);
   const dragRef = useRef<{
     x: number;
     y: number;
@@ -796,6 +806,7 @@ export function ThreadSequenceViewer() {
     return map;
   }, [sequence?.palette]);
   const maxStep = instructions.length;
+  const completed = maxStep > 0 && step >= maxStep;
   const circleDiameterCm = useMemo(() => numberParam("diameter", 60), []);
   const threadWidthMm = useMemo(() => numberParam("width", 0.3), []);
   const lineWidth = useMemo(() => {
@@ -1028,6 +1039,48 @@ export function ThreadSequenceViewer() {
     });
   }, [setZoomTransformImmediate, svgPointFromClient]);
 
+  const beginPinch = useCallback(() => {
+    const canvas = lineCanvasRef.current;
+    const pointers = [...activePointersRef.current.values()];
+    if (!canvas || pointers.length < 2) return;
+    const a = pointers[0]!;
+    const b = pointers[1]!;
+    const midpointX = (a.x + b.x) / 2;
+    const midpointY = (a.y + b.y) / 2;
+    const anchor = clientPointToCanvasScene(
+      canvas,
+      zoomTransformRef.current,
+      midpointX,
+      midpointY,
+    );
+    if (!anchor) return;
+    pinchRef.current = {
+      distance: Math.hypot(b.x - a.x, b.y - a.y),
+      midpointX,
+      midpointY,
+      transform: zoomTransformRef.current,
+      anchor,
+    };
+    dragRef.current = null;
+  }, []);
+
+  const updatePinch = useCallback(() => {
+    const pinch = pinchRef.current;
+    const pointers = [...activePointersRef.current.values()];
+    if (!pinch || pointers.length < 2) return;
+    const a = pointers[0]!;
+    const b = pointers[1]!;
+    const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+    const scale = distance / Math.max(1, pinch.distance);
+    const nextK = clamp(pinch.transform.k * scale, MIN_ZOOM, MAX_ZOOM);
+    const ratio = nextK / pinch.transform.k;
+    setZoomTransformImmediate({
+      x: pinch.transform.x + pinch.anchor.x * pinch.transform.k * (1 - ratio),
+      y: pinch.transform.y + pinch.anchor.y * pinch.transform.k * (1 - ratio),
+      k: nextK,
+    });
+  }, [setZoomTransformImmediate]);
+
   useEffect(() => {
     const canvas = lineCanvasRef.current;
     if (!canvas) return;
@@ -1063,9 +1116,16 @@ export function ThreadSequenceViewer() {
           <button
             type="button"
             disabled={!maxStep}
-            onClick={() => setPlaying((p) => !p)}
+            onClick={() => {
+              if (completed) {
+                setStep(0);
+                setPlaying(true);
+                return;
+              }
+              setPlaying((p) => !p);
+            }}
           >
-            {playing ? "Pause" : "Play"}
+            {completed ? "Restart" : playing ? "Pause" : "Play"}
           </button>
           <label className="speed-control">
             <input
@@ -1083,8 +1143,12 @@ export function ThreadSequenceViewer() {
                 )
               }
             />
-            {stepsPerSecond.toLocaleString()}
+            <span>
+              {stepsPerSecond.toLocaleString()}
+              <span className="per-second">/sec</span>
+            </span>
           </label>
+          <span className="zoom-hint">scroll to zoom</span>
           <span className="step-counter">{step.toLocaleString()} / {maxStep.toLocaleString()}</span>
         </div>
         {error && <p className="stale-banner">{error}</p>}
@@ -1099,10 +1163,18 @@ export function ThreadSequenceViewer() {
             onPointerDown={(e) => {
               const canvas = lineCanvasRef.current;
               if (!canvas) return;
-              const point = svgPointFromClient(e.clientX, e.clientY);
-              if (!point) return;
+              activePointersRef.current.set(e.pointerId, {
+                x: e.clientX,
+                y: e.clientY,
+              });
               e.preventDefault();
               canvas.setPointerCapture(e.pointerId);
+              if (activePointersRef.current.size >= 2) {
+                beginPinch();
+                return;
+              }
+              const point = svgPointFromClient(e.clientX, e.clientY);
+              if (!point) return;
               dragRef.current = {
                 x: point.x,
                 y: point.y,
@@ -1110,6 +1182,17 @@ export function ThreadSequenceViewer() {
               };
             }}
             onPointerMove={(e) => {
+              if (activePointersRef.current.has(e.pointerId)) {
+                activePointersRef.current.set(e.pointerId, {
+                  x: e.clientX,
+                  y: e.clientY,
+                });
+              }
+              if (pinchRef.current) {
+                e.preventDefault();
+                updatePinch();
+                return;
+              }
               const drag = dragRef.current;
               if (!drag) return;
               const canvas = lineCanvasRef.current;
@@ -1131,10 +1214,14 @@ export function ThreadSequenceViewer() {
               });
             }}
             onPointerUp={() => {
+              activePointersRef.current.clear();
+              pinchRef.current = null;
               dragRef.current = null;
               setCullTransform(zoomTransformRef.current);
             }}
             onPointerCancel={() => {
+              activePointersRef.current.clear();
+              pinchRef.current = null;
               dragRef.current = null;
               setCullTransform(zoomTransformRef.current);
             }}

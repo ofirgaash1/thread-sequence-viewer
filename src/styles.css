@@ -88,6 +88,18 @@ button.active {
   width: min(32vw, 180px);
 }
 
+.per-second {
+  margin-left: 2px;
+  color: #8f9aaf;
+  font-size: 0.78rem;
+}
+
+.zoom-hint {
+  color: rgba(201, 210, 227, 0.72);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .step-counter {
   min-width: 120px;
   color: #c9d2e3;
@@ -164,5 +176,9 @@ button.active {
 
   .step-counter {
     min-width: 100px;
+  }
+
+  .zoom-hint {
+    display: none;
   }
 }
