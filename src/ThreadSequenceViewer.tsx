@@ -763,7 +763,7 @@ export function ThreadSequenceViewer() {
   const [sequence, setSequence] = useState<PhysicalSequenceExport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  const [playing, setPlaying] = useState(false);
   const [stepsPerSecond, setStepsPerSecond] = useState(160);
   const [activeSequenceId, setActiveSequenceId] = useState(SEQUENCES[0]!.id);
   const [canvasResizeTick, setCanvasResizeTick] = useState(0);
@@ -907,7 +907,7 @@ export function ThreadSequenceViewer() {
   ]);
 
   useEffect(() => {
-    if (!playing) return;
+    if (!playing || maxStep <= 0) return;
     let frameId = 0;
     let previousTime = performance.now();
     let accumulatedSteps = 0;
