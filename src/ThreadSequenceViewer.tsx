@@ -796,7 +796,7 @@ export function ThreadSequenceViewer() {
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [stepsPerSecond, setStepsPerSecond] = useState(160);
+  const [stepsPerSecond, setStepsPerSecond] = useState(3500);
   const sequences = useMemo(
     () => SEQUENCE_MANIFEST.map(manifestEntryToOption),
     [],
@@ -1166,7 +1166,17 @@ export function ThreadSequenceViewer() {
               setPlaying((p) => !p);
             }}
           >
-            {completed ? "Restart" : playing ? "Pause" : "Play"}
+            {playing ? "Pause" : "Play"}
+          </button>
+          <button
+            type="button"
+            disabled={!maxStep}
+            onClick={() => {
+              setStep(0);
+              setPlaying(true);
+            }}
+          >
+            Restart
           </button>
           <label className="speed-control">
             <input
