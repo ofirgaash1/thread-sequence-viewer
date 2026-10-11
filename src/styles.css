@@ -84,6 +84,20 @@ button.active {
   font-variant-numeric: tabular-nums;
 }
 
+.finals-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.finals-control input {
+  accent-color: #ffdca5;
+  cursor: pointer;
+}
+
 .speed-control input {
   width: min(32vw, 180px);
 }

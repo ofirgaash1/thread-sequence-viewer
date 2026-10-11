@@ -794,7 +794,10 @@ function appendCanvasLines(
 export function ThreadSequenceViewer() {
   const [sequence, setSequence] = useState<PhysicalSequenceExport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(0);
+  const [playbackStep, setStep] = useState(0);
+  const [finalsOnly, setFinalsOnly] = useState(false);
+  const finalsOnlyRef = useRef(false);
+  const sequenceLoadRef = useRef(0);
   const [playing, setPlaying] = useState(false);
   const [stepsPerSecond, setStepsPerSecond] = useState(3500);
   const sequences = useMemo(
@@ -835,6 +838,7 @@ export function ThreadSequenceViewer() {
     return map;
   }, [sequence?.palette]);
   const maxStep = instructions.length;
+  const step = finalsOnly ? maxStep : playbackStep;
   const completed = maxStep > 0 && step >= maxStep;
   const diameterToThreadRatio = useMemo(() => {
     const urlRatio = ratioParam();
@@ -953,7 +957,7 @@ export function ThreadSequenceViewer() {
   ]);
 
   useEffect(() => {
-    if (!playing || maxStep <= 0) return;
+    if (finalsOnly || !playing || maxStep <= 0) return;
     let frameId = 0;
     let previousTime = performance.now();
     let accumulatedSteps = 0;
@@ -975,7 +979,7 @@ export function ThreadSequenceViewer() {
 
     frameId = window.requestAnimationFrame(tick);
     return () => window.cancelAnimationFrame(frameId);
-  }, [playing, stepsPerSecond, maxStep]);
+  }, [finalsOnly, playing, stepsPerSecond, maxStep]);
 
   const scheduleCanvasRender = useCallback(() => {
     if (renderFrameRef.current !== null) return;
@@ -1002,19 +1006,20 @@ export function ThreadSequenceViewer() {
   );
 
   const loadSequence = useCallback(async (option: SequenceOption) => {
+    const loadId = ++sequenceLoadRef.current;
     setError(null);
     try {
       const loaded = await loadPhysicalSequence(option);
+      if (loadId !== sequenceLoadRef.current) return;
       setSequence(loaded.sequence);
       setActiveSequenceId(option.id);
       setStep(0);
-      setPlaying(true);
-      setZoomTransformImmediate({ x: 0, y: 0, k: 1 });
-      setCullTransform({ x: 0, y: 0, k: 1 });
+      setPlaying(!finalsOnlyRef.current);
     } catch (e) {
+      if (loadId !== sequenceLoadRef.current) return;
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [setZoomTransformImmediate]);
+  }, []);
 
   useEffect(() => {
     if (sequences.length === 0) {
@@ -1154,6 +1159,20 @@ export function ThreadSequenceViewer() {
           ))}
         </div>
         <div className="playback-controls">
+          <label className="finals-control">
+            <input
+              type="checkbox"
+              checked={finalsOnly}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                finalsOnlyRef.current = checked;
+                setFinalsOnly(checked);
+                setPlaying(!checked);
+              }}
+            />
+            Finals only
+          </label>
+          {!finalsOnly && <>
           <button
             type="button"
             disabled={!maxStep}
@@ -1199,8 +1218,9 @@ export function ThreadSequenceViewer() {
               <span className="per-second">/sec</span>
             </span>
           </label>
+          </>}
           <span className="zoom-hint">scroll to zoom</span>
-          <span className="step-counter">{step.toLocaleString()} / {maxStep.toLocaleString()}</span>
+          {!finalsOnly && <span className="step-counter">{step.toLocaleString()} / {maxStep.toLocaleString()}</span>}
         </div>
         {error && <p className="stale-banner">{error}</p>}
       </section>
