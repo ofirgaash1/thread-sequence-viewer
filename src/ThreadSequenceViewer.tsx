@@ -796,6 +796,7 @@ export function ThreadSequenceViewer() {
   const [error, setError] = useState<string | null>(null);
   const [playbackStep, setStep] = useState(0);
   const [finalsOnly, setFinalsOnly] = useState(false);
+  const [drawTransports, setDrawTransports] = useState(true);
   const finalsOnlyRef = useRef(false);
   const sequenceLoadRef = useRef(0);
   const [playing, setPlaying] = useState(false);
@@ -856,6 +857,7 @@ export function ThreadSequenceViewer() {
   const drawCommands = useMemo<(DrawCommand | null)[]>(() => {
     if (nailCount <= 1) return instructions.map(() => null);
     return instructions.map((instr) => {
+      if (instr.type === "transport" && !drawTransports) return null;
       if (instr.type === "cut") {
         if (instr.atNail === undefined) return null;
         const p = nailPoint(instr.atNail, nailCount);
@@ -874,7 +876,7 @@ export function ThreadSequenceViewer() {
         transport: instr.type === "transport",
       };
     });
-  }, [colorByName, instructions, nailCount]);
+  }, [colorByName, drawTransports, instructions, nailCount]);
   const svgScene = useMemo(() => buildSvgScene(drawCommands), [drawCommands]);
   const nailPoints = useMemo(() => {
     if (nailCount <= 1) return [];
@@ -1171,6 +1173,14 @@ export function ThreadSequenceViewer() {
               }}
             />
             Finals only
+          </label>
+          <label className="finals-control">
+            <input
+              type="checkbox"
+              checked={drawTransports}
+              onChange={(e) => setDrawTransports(e.target.checked)}
+            />
+            Draw transports
           </label>
           {!finalsOnly && <>
           <button
