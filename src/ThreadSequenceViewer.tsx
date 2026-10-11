@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { strFromU8, unzipSync } from "fflate";
+import { WebGLThreadRenderer } from "./WebGLThreadRenderer";
 import {
   SEQUENCE_MANIFEST,
   type SequenceManifestEntry,
@@ -818,6 +819,7 @@ export function ThreadSequenceViewer() {
   const [drawTransports, setDrawTransports] = useState(true);
   const finalsOnlyRef = useRef(false);
   const sequenceLoadRef = useRef(0);
+  const requestedSequenceRef = useRef<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [stepsPerSecond, setStepsPerSecond] = useState(3500);
   const sequences = useMemo(
@@ -837,6 +839,7 @@ export function ThreadSequenceViewer() {
   const zoomTransformRef = useRef<ZoomTransform>({ x: 0, y: 0, k: 1 });
   const renderFrameRef = useRef<number | null>(null);
   const canvasLineStateRef = useRef<CanvasLineRenderState | null>(null);
+  const webglRendererRef = useRef<WebGLThreadRenderer | null | undefined>(undefined);
   const finalViewsRef = useRef(new Map<string, HTMLCanvasElement>());
   const sceneCacheRef = useRef(new WeakMap<PhysicalSequenceExport, Map<boolean, ReturnType<typeof buildSvgScene>>>());
   const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
@@ -919,6 +922,11 @@ export function ThreadSequenceViewer() {
     );
   }, [nailCount]);
 
+  useLayoutEffect(() => () => {
+    webglRendererRef.current?.dispose();
+    webglRendererRef.current = undefined;
+  }, []);
+
   useLayoutEffect(() => {
     const canvas = lineCanvasRef.current;
     const overlayCanvas = overlayCanvasRef.current;
@@ -928,6 +936,15 @@ export function ThreadSequenceViewer() {
     const previous = canvasLineStateRef.current;
     const metrics = resizeCanvasToDisplay(canvas);
     if (!metrics) return;
+    if (webglRendererRef.current === undefined) {
+      try { webglRendererRef.current = new WebGLThreadRenderer(canvas); }
+      catch { webglRendererRef.current = null; }
+    }
+    if (webglRendererRef.current) {
+      webglRendererRef.current.draw(svgScene, step, transform, lineWidth);
+      if (overlayCanvas) drawCanvasOverlay(overlayCanvas, nailPoints, transform);
+      return;
+    }
     const renderKey = canvasRenderKey(metrics, transform, lineWidth, lineOpacity);
     const finalKey = `${activeSequenceId}:${drawTransports}:${renderKey}`;
     const cachedFinal = finalsOnly ? finalViewsRef.current.get(finalKey) : undefined;
@@ -1078,6 +1095,7 @@ export function ThreadSequenceViewer() {
   );
 
   const loadSequence = useCallback(async (option: SequenceOption) => {
+    requestedSequenceRef.current = option.id;
     const loadId = ++sequenceLoadRef.current;
     setError(null);
     try {
@@ -1092,6 +1110,23 @@ export function ThreadSequenceViewer() {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  useEffect(() => {
+    const navigate = (event: KeyboardEvent) => {
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("textarea, select") ||
+        (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"))) return;
+      const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
+        : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+      if (!direction || !sequences.length) return;
+      event.preventDefault();
+      const current = Math.max(0, sequences.findIndex(option => option.id === requestedSequenceRef.current));
+      void loadSequence(sequences[(current + direction + sequences.length) % sequences.length]!);
+    };
+    window.addEventListener("keydown", navigate);
+    return () => window.removeEventListener("keydown", navigate);
+  }, [loadSequence, sequences]);
 
   useEffect(() => {
     if (sequences.length === 0) {
@@ -1123,10 +1158,20 @@ export function ThreadSequenceViewer() {
       });
     };
     const observer = new ResizeObserver(requestResizeRender);
+    const onContextLost = (event: Event) => event.preventDefault();
+    const onContextRestored = () => {
+      webglRendererRef.current?.dispose();
+      webglRendererRef.current = undefined;
+      requestResizeRender();
+    };
+    canvas.addEventListener("webglcontextlost", onContextLost);
+    canvas.addEventListener("webglcontextrestored", onContextRestored);
     observer.observe(canvas);
     window.addEventListener("resize", requestResizeRender);
     return () => {
       observer.disconnect();
+      canvas.removeEventListener("webglcontextlost", onContextLost);
+      canvas.removeEventListener("webglcontextrestored", onContextRestored);
       window.removeEventListener("resize", requestResizeRender);
       if (frame) window.cancelAnimationFrame(frame);
     };
