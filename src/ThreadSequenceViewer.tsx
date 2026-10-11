@@ -223,7 +223,24 @@ function readZipJson(bytes: Uint8Array): {
   };
 }
 
-async function loadPhysicalSequence(option: SequenceOption): Promise<{
+const loadedSequences = new Map<string, Promise<{
+  sequence: PhysicalSequenceExport;
+  displayName: string;
+}>>();
+
+function loadPhysicalSequence(option: SequenceOption) {
+  let pending = loadedSequences.get(option.url);
+  if (!pending) {
+    pending = fetchPhysicalSequence(option).catch((error) => {
+      loadedSequences.delete(option.url);
+      throw error;
+    });
+    loadedSequences.set(option.url, pending);
+  }
+  return pending;
+}
+
+async function fetchPhysicalSequence(option: SequenceOption): Promise<{
   sequence: PhysicalSequenceExport;
   displayName: string;
 }> {
@@ -742,7 +759,9 @@ function rebuildCanvasLines(
   lineOpacity: number,
 ): string | null {
   const metrics = resizeCanvasToDisplay(canvas);
-  const ctx = canvas.getContext("2d");
+  // Prefer software rasterization: Chrome's accelerated thick-stroke path
+  // stalls for seconds on dense exports at high device pixel ratios.
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!metrics || !ctx) return null;
   const key = canvasRenderKey(metrics, transform, lineWidth, lineOpacity);
   const cullRect =
@@ -772,7 +791,7 @@ function appendCanvasLines(
   lineOpacity: number,
 ): string | null {
   const metrics = resizeCanvasToDisplay(canvas);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!metrics || !ctx) return null;
   const key = canvasRenderKey(metrics, transform, lineWidth, lineOpacity);
   const cullRect =
@@ -818,6 +837,8 @@ export function ThreadSequenceViewer() {
   const zoomTransformRef = useRef<ZoomTransform>({ x: 0, y: 0, k: 1 });
   const renderFrameRef = useRef<number | null>(null);
   const canvasLineStateRef = useRef<CanvasLineRenderState | null>(null);
+  const finalViewsRef = useRef(new Map<string, HTMLCanvasElement>());
+  const sceneCacheRef = useRef(new WeakMap<PhysicalSequenceExport, Map<boolean, ReturnType<typeof buildSvgScene>>>());
   const activePointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<PinchState | null>(null);
   const dragRef = useRef<{
@@ -877,7 +898,20 @@ export function ThreadSequenceViewer() {
       };
     });
   }, [colorByName, drawTransports, instructions, nailCount]);
-  const svgScene = useMemo(() => buildSvgScene(drawCommands), [drawCommands]);
+  const svgScene = useMemo(() => {
+    if (!sequence) return buildSvgScene(drawCommands);
+    let variants = sceneCacheRef.current.get(sequence);
+    if (!variants) {
+      variants = new Map();
+      sceneCacheRef.current.set(sequence, variants);
+    }
+    let scene = variants.get(drawTransports);
+    if (!scene) {
+      scene = buildSvgScene(drawCommands);
+      variants.set(drawTransports, scene);
+    }
+    return scene;
+  }, [drawCommands, drawTransports, sequence]);
   const nailPoints = useMemo(() => {
     if (nailCount <= 1) return [];
     return Array.from({ length: nailCount }, (_, nail) =>
@@ -895,6 +929,36 @@ export function ThreadSequenceViewer() {
     const metrics = resizeCanvasToDisplay(canvas);
     if (!metrics) return;
     const renderKey = canvasRenderKey(metrics, transform, lineWidth, lineOpacity);
+    const finalKey = `${activeSequenceId}:${drawTransports}:${renderKey}`;
+    const cachedFinal = finalsOnly ? finalViewsRef.current.get(finalKey) : undefined;
+    if (cachedFinal) {
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (ctx) {
+        clearCanvas(ctx, metrics);
+        ctx.drawImage(cachedFinal, 0, 0);
+        canvasLineStateRef.current = { scene: svgScene, step, renderKey };
+        // Refresh insertion order so the least recently used view is evicted first.
+        finalViewsRef.current.delete(finalKey);
+        finalViewsRef.current.set(finalKey, cachedFinal);
+        if (overlayCanvas) drawCanvasOverlay(overlayCanvas, nailPoints, transform);
+        return;
+      }
+    }
+    const cacheFinal = () => {
+      if (!finalsOnly || !maxStep) return;
+      const snapshot = document.createElement("canvas");
+      snapshot.width = metrics.width;
+      snapshot.height = metrics.height;
+      const snapshotCtx = snapshot.getContext("2d", { willReadFrequently: true });
+      if (!snapshotCtx) return;
+      snapshotCtx.drawImage(canvas, 0, 0);
+      finalViewsRef.current.set(finalKey, snapshot);
+      // Three full-resolution views bound memory use while comparing artworks.
+      if (finalViewsRef.current.size > 3) {
+        const oldest = finalViewsRef.current.keys().next().value;
+        if (oldest !== undefined) finalViewsRef.current.delete(oldest);
+      }
+    };
     const canAppend =
       previous &&
       previous.scene === svgScene &&
@@ -915,6 +979,7 @@ export function ThreadSequenceViewer() {
         previous.step = step;
         previous.renderKey = nextKey;
         canvasLineStateRef.current = previous;
+        cacheFinal();
       }
       if (overlayCanvas) {
         drawCanvasOverlay(
@@ -940,6 +1005,7 @@ export function ThreadSequenceViewer() {
         step,
         renderKey: nextKey,
       };
+      cacheFinal();
     }
     if (overlayCanvas) {
       drawCanvasOverlay(
@@ -949,10 +1015,14 @@ export function ThreadSequenceViewer() {
       );
     }
   }, [
+    activeSequenceId,
     canvasResizeTick,
     cullTransform,
+    drawTransports,
+    finalsOnly,
     lineOpacity,
     lineWidth,
+    maxStep,
     nailPoints,
     step,
     svgScene,
