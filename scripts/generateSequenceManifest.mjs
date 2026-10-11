@@ -5,7 +5,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const sequencesRoot = path.join(root, "public", "sequences");
 const outputFile = path.join(root, "src", "generated", "sequenceManifest.ts");
-const sequenceOrder = ["new-mona-lisa", "mona-lisa", "duck", "ofir"];
+const sequenceOrder = ["10-11-26-newest", "new-mona-lisa", "mona-lisa", "duck", "ofir"];
+const sequenceLabels = { "10-11-26-newest": "10.11.26 - newest" };
 
 function humanizeZipName(filename) {
   const base = filename.replace(/\.zip$/i, "");
@@ -64,7 +65,7 @@ export function generateSequenceManifest() {
   const files = listSequenceZipFiles();
   const manifest = files.map((file) => ({
     id: zipFilenameToId(file),
-    label: humanizeZipName(file),
+    label: sequenceLabels[zipFilenameToId(file)] ?? humanizeZipName(file),
     file: sequenceZipUrlName(file),
   }));
 
