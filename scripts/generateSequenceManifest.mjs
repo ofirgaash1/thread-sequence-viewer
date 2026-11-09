@@ -6,7 +6,6 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const sequencesRoot = path.join(root, "public", "sequences");
 const outputFile = path.join(root, "src", "generated", "sequenceManifest.ts");
 const sequenceOrder = [
-  "mona-641-794",
   "mona-641-404",
   "final-642",
   "seed-764",
@@ -18,7 +17,6 @@ const sequenceOrder = [
 
 /** Gallery groups: artworks of one subject are listed together under the group name, each by its short label. */
 const sequenceGroups = {
-  "mona-641-794": { group: "Mona Lisa", shortLabel: "641.794" },
   "mona-641-404": { group: "Mona Lisa", shortLabel: "641.404" },
   "final-642": { group: "Mona Lisa", shortLabel: "Final 642" },
   "seed-764": { group: "Mona Lisa", shortLabel: "Seed 764" },
