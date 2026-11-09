@@ -1,6 +1,8 @@
 type Segment = { x1: number; y1: number; x2: number; y2: number; color: string; visibleStep: number };
 type Scene = { lineIndex: { segments: Segment[] } };
 type View = { x: number; y: number; k: number };
+/** Device-pixel placement of the scene: canvas = offset + (scene * k + view - SVG_MIN) * scale. */
+type Frame = { offsetX: number; offsetY: number; scale: number };
 
 const vertexSource = `#version 300 es
 precision highp float;
@@ -8,14 +10,15 @@ layout(location=0) in vec4 endpoints;
 layout(location=1) in vec3 color;
 uniform vec2 viewport;
 uniform vec3 view;
+uniform vec3 frame;
 uniform float width;
 out vec2 local;
 out float lengthPx;
 out vec3 threadColor;
 const vec2 corners[6] = vec2[6](vec2(0,-1),vec2(1,-1),vec2(0,1),vec2(0,1),vec2(1,-1),vec2(1,1));
 void main() {
-  float scale = min(viewport.x, viewport.y) / 30.0;
-  vec2 offset = (viewport - vec2(30.0 * scale)) * 0.5;
+  float scale = frame.z;
+  vec2 offset = frame.xy;
   vec2 a = offset + (endpoints.xy * view.z + view.xy + vec2(15)) * scale;
   vec2 b = offset + (endpoints.zw * view.z + view.xy + vec2(15)) * scale;
   vec2 delta = b-a;
@@ -50,6 +53,7 @@ export class WebGLThreadRenderer {
   private viewport: WebGLUniformLocation | null;
   private view: WebGLUniformLocation | null;
   private width: WebGLUniformLocation | null;
+  private frame: WebGLUniformLocation | null;
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext("webgl2", { alpha: true, antialias: false, premultipliedAlpha: true });
@@ -80,9 +84,10 @@ export class WebGLThreadRenderer {
     this.viewport = gl.getUniformLocation(program, "viewport");
     this.view = gl.getUniformLocation(program, "view");
     this.width = gl.getUniformLocation(program, "width");
+    this.frame = gl.getUniformLocation(program, "frame");
   }
 
-  draw(scene: Scene, step: number, view: View, lineWidth: number) {
+  draw(scene: Scene, step: number, view: View, lineWidth: number, frame: Frame) {
     const gl = this.gl;
     if (gl.isContextLost()) return false;
     const segments = scene.lineIndex.segments;
@@ -130,7 +135,8 @@ export class WebGLThreadRenderer {
     gl.vertexAttribDivisor(1, 1);
     gl.uniform2f(this.viewport, this.canvas.width, this.canvas.height);
     gl.uniform3f(this.view, view.x, view.y, view.k);
-    gl.uniform1f(this.width, Math.max(0.5, lineWidth * view.k * Math.min(this.canvas.width, this.canvas.height) / 30));
+    gl.uniform3f(this.frame, frame.offsetX, frame.offsetY, frame.scale);
+    gl.uniform1f(this.width, Math.max(0.5, lineWidth * view.k * frame.scale));
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     let lo = 0, hi = segments.length;

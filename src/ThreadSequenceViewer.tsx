@@ -1,4 +1,4 @@
-import {
+import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -51,6 +51,26 @@ type SequenceOption = {
   id: string;
   label: string;
   url: string;
+  /** Gallery group (e.g. "Mona Lisa"); artworks sharing one are listed together. */
+  group?: string;
+  /** Name inside its group (e.g. "641.794"). */
+  shortLabel?: string;
+};
+
+type GallerySection =
+  | { kind: "single"; option: SequenceOption }
+  | { kind: "group"; name: string; options: SequenceOption[] };
+
+/** Where the panel sits: beside the circle (landscape), below it (portrait), or in a drawer over it (near-square). */
+type LayoutMode = "side" | "bottom" | "overlay";
+
+type ViewerLayout = {
+  mode: LayoutMode;
+  /** Circle centre and diameter in CSS px: the diameter is always the viewport's short side. */
+  cx: number;
+  cy: number;
+  size: number;
+  panel: { left: number; top: number; width: number; height: number } | null;
 };
 
 type ZoomTransform = { x: number; y: number; k: number };
@@ -163,6 +183,65 @@ const MAX_ZOOM = 1000;
 const CULL_ZOOM_THRESHOLD = 4;
 const WHEEL_ZOOM_DENOMINATOR = 320;
 const DEFAULT_DIAMETER_TO_THREAD_RATIO = 2000;
+/** Scene units spanned by the viewport's short side: the frame and its nails touch the screen edges. */
+const VIEW_EXTENT = 2 * RADIUS + 0.12;
+const SIDE_PANEL_MIN = 240;
+const SIDE_PANEL_MAX = 380;
+const BOTTOM_PANEL_MIN = 200;
+
+function computeLayout(width: number, height: number): ViewerLayout {
+  const size = Math.min(width, height);
+  if (width - height >= SIDE_PANEL_MIN) {
+    const panelWidth = Math.min(SIDE_PANEL_MAX, width - height);
+    return {
+      mode: "side",
+      size,
+      cx: panelWidth + (width - panelWidth) / 2,
+      cy: height / 2,
+      panel: { left: 0, top: 0, width: panelWidth, height },
+    };
+  }
+  if (height - width >= BOTTOM_PANEL_MIN) {
+    return {
+      mode: "bottom",
+      size,
+      cx: width / 2,
+      cy: width / 2,
+      panel: { left: 0, top: width, width, height: height - width },
+    };
+  }
+  return { mode: "overlay", size, cx: width / 2, cy: height / 2, panel: null };
+}
+
+/** Untagged published artworks named after the Mona Lisa join that group. */
+function inferGroup(label: string): { group?: string; shortLabel?: string } {
+  if (!/\bmona\b/i.test(label)) return {};
+  const shortLabel = label.replace(/^\s*(new\s+)?mona(\s+lisa)?\s*/i, (_, isNew) => (isNew ? "New " : "")).trim();
+  return { group: "Mona Lisa", shortLabel: shortLabel || "Original" };
+}
+
+function buildGallerySections(options: SequenceOption[]): GallerySection[] {
+  const sections: GallerySection[] = [];
+  const groups = new Map<string, Extract<GallerySection, { kind: "group" }>>();
+  for (const option of options) {
+    if (!option.group) {
+      sections.push({ kind: "single", option });
+      continue;
+    }
+    let section = groups.get(option.group);
+    if (!section) {
+      section = { kind: "group", name: option.group, options: [] };
+      groups.set(option.group, section);
+      sections.push(section);
+    }
+    section.options.push(option);
+  }
+  return sections.map((section) =>
+    section.kind === "group" && section.options.length === 1
+      ? { kind: "single", option: { ...section.options[0]!, shortLabel: undefined } }
+      : section,
+  );
+}
 const REFERENCE_THREAD_WIDTH_MM = 1;
 
 function isPhysicalSequenceExport(value: unknown): value is PhysicalSequenceExport {
@@ -176,12 +255,13 @@ function manifestEntryToOption(entry: SequenceManifestEntry): SequenceOption {
     id: entry.id,
     label: entry.label,
     url: `${import.meta.env.BASE_URL}sequences/${encodeURIComponent(entry.file)}`,
+    ...(entry.group ? { group: entry.group, shortLabel: entry.shortLabel } : inferGroup(entry.label)),
   };
 }
 
 /** Artworks published from Peel Studio: sequences/manifest.json (newest first), read at runtime so publishing
  * needs no rebuild. Built-in sequences (the build's manifest) follow; an id in both is listed once. */
-type PublishedEntry = { id: string; label: string; file: string };
+type PublishedEntry = { id: string; label: string; file: string; group?: string; shortLabel?: string };
 
 async function fetchPublishedSequences(): Promise<SequenceOption[]> {
   try {
@@ -190,7 +270,15 @@ async function fetchPublishedSequences(): Promise<SequenceOption[]> {
     const data = (await response.json()) as { sequences?: PublishedEntry[] };
     return (data.sequences ?? [])
       .filter((entry) => entry && typeof entry.id === "string" && typeof entry.file === "string")
-      .map((entry) => manifestEntryToOption({ id: entry.id, label: entry.label || entry.id, file: entry.file }));
+      .map((entry) =>
+        manifestEntryToOption({
+          id: entry.id,
+          label: entry.label || entry.id,
+          file: entry.file,
+          group: typeof entry.group === "string" ? entry.group : undefined,
+          shortLabel: typeof entry.shortLabel === "string" ? entry.shortLabel : undefined,
+        }),
+      );
   } catch {
     return [];
   }
@@ -353,12 +441,16 @@ function fullSceneRect(): SceneRect {
   };
 }
 
-function visibleSceneRect(transform: ZoomTransform): SceneRect {
+function visibleSceneRect(transform: ZoomTransform, metrics: CanvasMetrics): SceneRect {
   if (transform.k < CULL_ZOOM_THRESHOLD) return fullSceneRect();
-  const minX = (SVG_MIN - transform.x) / transform.k;
-  const minY = (SVG_MIN - transform.y) / transform.k;
-  const maxX = (SVG_MAX - transform.x) / transform.k;
-  const maxY = (SVG_MAX - transform.y) / transform.k;
+  const toSceneX = (px: number) =>
+    ((px - metrics.offsetX) / metrics.scale + SVG_MIN - transform.x) / transform.k;
+  const toSceneY = (px: number) =>
+    ((px - metrics.offsetY) / metrics.scale + SVG_MIN - transform.y) / transform.k;
+  const minX = toSceneX(0);
+  const minY = toSceneY(0);
+  const maxX = toSceneX(metrics.width);
+  const maxY = toSceneY(metrics.height);
   const overscan = Math.max(0.16, Math.max(maxX - minX, maxY - minY) * 0.75);
   return {
     minX: minX - overscan,
@@ -615,7 +707,8 @@ function resizeCanvasToDisplay(canvas: HTMLCanvasElement): CanvasMetrics | null 
     canvas.width = width;
     canvas.height = height;
   }
-  const scale = Math.min(width / SVG_SIZE, height / SVG_SIZE);
+  const layout = computeLayout(rect.width, rect.height);
+  const scale = (layout.size * dpr) / VIEW_EXTENT;
   return {
     cssWidth: rect.width,
     cssHeight: rect.height,
@@ -623,8 +716,8 @@ function resizeCanvasToDisplay(canvas: HTMLCanvasElement): CanvasMetrics | null 
     height,
     dpr,
     scale,
-    offsetX: (width - SVG_SIZE * scale) / 2,
-    offsetY: (height - SVG_SIZE * scale) / 2,
+    offsetX: layout.cx * dpr + SVG_MIN * scale,
+    offsetY: layout.cy * dpr + SVG_MIN * scale,
   };
 }
 
@@ -665,9 +758,10 @@ function clientPointToCanvasScene(
 ): { x: number; y: number } | null {
   const rect = canvas.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
-  const scale = Math.min(rect.width / SVG_SIZE, rect.height / SVG_SIZE);
-  const offsetX = (rect.width - SVG_SIZE * scale) / 2;
-  const offsetY = (rect.height - SVG_SIZE * scale) / 2;
+  const layout = computeLayout(rect.width, rect.height);
+  const scale = layout.size / VIEW_EXTENT;
+  const offsetX = layout.cx + SVG_MIN * scale;
+  const offsetY = layout.cy + SVG_MIN * scale;
   const x = clientX - rect.left;
   const y = clientY - rect.top;
   return {
@@ -746,7 +840,7 @@ function drawCanvasOverlay(
   const ctx = canvas.getContext("2d");
   if (!metrics || !ctx) return;
   const cullRect =
-    transform.k >= CULL_ZOOM_THRESHOLD ? visibleSceneRect(transform) : null;
+    transform.k >= CULL_ZOOM_THRESHOLD ? visibleSceneRect(transform, metrics) : null;
   clearCanvas(ctx, metrics);
 
   ctx.save();
@@ -793,7 +887,7 @@ function rebuildCanvasLines(
   if (!metrics || !ctx) return null;
   const key = canvasRenderKey(metrics, transform, lineWidth, lineOpacity);
   const cullRect =
-    transform.k >= CULL_ZOOM_THRESHOLD ? visibleSceneRect(transform) : null;
+    transform.k >= CULL_ZOOM_THRESHOLD ? visibleSceneRect(transform, metrics) : null;
   clearCanvas(ctx, metrics);
   drawCanvasLineRange(
     ctx,
@@ -823,7 +917,7 @@ function appendCanvasLines(
   if (!metrics || !ctx) return null;
   const key = canvasRenderKey(metrics, transform, lineWidth, lineOpacity);
   const cullRect =
-    transform.k >= CULL_ZOOM_THRESHOLD ? visibleSceneRect(transform) : null;
+    transform.k >= CULL_ZOOM_THRESHOLD ? visibleSceneRect(transform, metrics) : null;
   drawCanvasLineRange(
     ctx,
     metrics,
@@ -856,6 +950,12 @@ export function ThreadSequenceViewer() {
   const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
   const initialSequenceLoadedRef = useRef(false);
   const [canvasResizeTick, setCanvasResizeTick] = useState(0);
+  const [viewport, setViewport] = useState(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set());
   const [cullTransform, setCullTransform] = useState<ZoomTransform>({
     x: 0,
     y: 0,
@@ -877,6 +977,15 @@ export function ThreadSequenceViewer() {
     transform: ZoomTransform;
   } | null>(null);
 
+  const layout = computeLayout(viewport.width, viewport.height);
+  const gallerySections = useMemo(() => buildGallerySections(sequences), [sequences]);
+  /** Gallery order (grouped artworks adjacent): what the arrow keys step through. */
+  const galleryOrder = useMemo(
+    () => gallerySections.flatMap((section) => (section.kind === "group" ? section.options : [section.option])),
+    [gallerySections],
+  );
+  const activeOption = sequences.find((option) => option.id === activeSequenceId) ?? null;
+  const zoomed = cullTransform.k !== 1 || cullTransform.x !== 0 || cullTransform.y !== 0;
   const instructions = sequence?.instructions ?? [];
   const nailCount = useMemo(
     () => sequence?.nailCount ?? inferNailCount(instructions),
@@ -968,7 +1077,7 @@ export function ThreadSequenceViewer() {
       catch { webglRendererRef.current = null; }
     }
     if (webglRendererRef.current) {
-      webglRendererRef.current.draw(svgScene, step, transform, lineWidth);
+      webglRendererRef.current.draw(svgScene, step, transform, lineWidth, metrics);
       if (overlayCanvas) drawCanvasOverlay(overlayCanvas, nailPoints, transform);
       return;
     }
@@ -1149,14 +1258,25 @@ export function ThreadSequenceViewer() {
         (target instanceof HTMLInputElement && target.type !== "checkbox" && target.type !== "radio"))) return;
       const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1
         : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
-      if (!direction || !sequences.length) return;
+      if (!direction || !galleryOrder.length) return;
       event.preventDefault();
-      const current = Math.max(0, sequences.findIndex(option => option.id === requestedSequenceRef.current));
-      void loadSequence(sequences[(current + direction + sequences.length) % sequences.length]!);
+      const current = Math.max(0, galleryOrder.findIndex(option => option.id === requestedSequenceRef.current));
+      void loadSequence(galleryOrder[(current + direction + galleryOrder.length) % galleryOrder.length]!);
     };
     window.addEventListener("keydown", navigate);
     return () => window.removeEventListener("keydown", navigate);
-  }, [loadSequence, sequences]);
+  }, [galleryOrder, loadSequence]);
+
+  // The playing artwork's group stays expanded so it is visible in the gallery.
+  useEffect(() => {
+    const group = activeOption?.group;
+    if (!group) return;
+    setOpenGroups((current) => (current.has(group) ? current : new Set(current).add(group)));
+  }, [activeOption?.group]);
+
+  useEffect(() => {
+    if (layout.mode !== "overlay") setDrawerOpen(false);
+  }, [layout.mode]);
 
   useEffect(() => {
     let alive = true;
@@ -1198,6 +1318,11 @@ export function ThreadSequenceViewer() {
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
+        setViewport((current) =>
+          current.width === window.innerWidth && current.height === window.innerHeight
+            ? current
+            : { width: window.innerWidth, height: window.innerHeight },
+        );
         setCanvasResizeTick((tick) => tick + 1);
       });
     };
@@ -1304,23 +1429,127 @@ export function ThreadSequenceViewer() {
     return () => canvas.removeEventListener("wheel", onWheel);
   }, [zoomAt]);
 
-  return (
-    <div className="svg-viewer-page">
-      <section className="viewer-controls">
-        <div className="sequence-buttons">
-          {sequences.map((option) => (
+  const togglePlay = () => {
+    if (completed) {
+      setStep(0);
+      setPlaying(true);
+      return;
+    }
+    setPlaying((p) => !p);
+  };
+
+  const resetView = () => {
+    const identity = { x: 0, y: 0, k: 1 };
+    zoomTransformRef.current = identity;
+    setCullTransform(identity);
+  };
+
+  const panel = (
+    <aside
+      className={`viewer-panel panel-${layout.mode}${drawerOpen ? " open" : ""}`}
+      style={
+        layout.panel
+          ? {
+              left: layout.panel.left,
+              top: layout.panel.top,
+              width: layout.panel.width,
+              height: layout.panel.height,
+            }
+          : undefined
+      }
+    >
+      <header className="now-playing">
+        <div className="now-heading">
+          <div className="now-titles">
+            <div className="now-kicker">{activeOption?.group ?? "String art"}</div>
+            <h1 className="now-title">
+              {activeOption ? activeOption.shortLabel ?? activeOption.label : "Loading…"}
+            </h1>
+          </div>
+          {layout.mode === "overlay" && (
             <button
-              key={option.id}
               type="button"
-              className={option.id === activeSequenceId ? "active" : undefined}
-              onClick={() => void loadSequence(option)}
+              className="icon-button"
+              aria-label="Close panel"
+              onClick={() => setDrawerOpen(false)}
             >
-              {option.label}
+              <CloseIcon />
             </button>
-          ))}
+          )}
         </div>
-        <div className="playback-controls">
-          <label className="finals-control">
+
+        {finalsOnly ? (
+          <p className="now-meta">Showing finished artworks</p>
+        ) : (
+          <>
+            <input
+              className="scrubber"
+              type="range"
+              min={0}
+              max={Math.max(1, maxStep)}
+              step={1}
+              value={step}
+              disabled={!maxStep}
+              aria-label="Construction progress"
+              style={{ "--progress": `${maxStep ? (step / maxStep) * 100 : 0}%` } as React.CSSProperties}
+              onChange={(e) => {
+                setPlaying(false);
+                setStep(Number(e.target.value));
+              }}
+            />
+            <div className="now-meta">
+              <span>
+                {step.toLocaleString()} / {maxStep.toLocaleString()} threads
+              </span>
+              <span>{maxStep ? Math.floor((step / maxStep) * 100) : 0}%</span>
+            </div>
+            <div className="transport">
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Restart"
+                title="Restart"
+                disabled={!maxStep}
+                onClick={() => {
+                  setStep(0);
+                  setPlaying(true);
+                }}
+              >
+                <RestartIcon />
+              </button>
+              <button
+                type="button"
+                className="play-button"
+                aria-label={playing ? "Pause" : "Play"}
+                disabled={!maxStep}
+                onClick={togglePlay}
+              >
+                {playing ? <PauseIcon /> : <PlayIcon />}
+              </button>
+              <label className="speed-control">
+                <span className="speed-label">
+                  Speed <b>{stepsPerSecond.toLocaleString()}</b>/s
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={4}
+                  step={0.01}
+                  value={Math.log10(stepsPerSecond)}
+                  aria-label="Threads per second"
+                  onChange={(e) =>
+                    setStepsPerSecond(
+                      Math.max(1, Math.min(10000, Math.round(10 ** Number(e.target.value)))),
+                    )
+                  }
+                />
+              </label>
+            </div>
+          </>
+        )}
+
+        <div className="toggles">
+          <label className="switch">
             <input
               type="checkbox"
               checked={finalsOnly}
@@ -1331,68 +1560,98 @@ export function ThreadSequenceViewer() {
                 setPlaying(!checked);
               }}
             />
+            <span className="switch-track" aria-hidden="true" />
             Finals only
           </label>
-          <label className="finals-control">
+          <label className="switch">
             <input
               type="checkbox"
               checked={drawTransports}
               onChange={(e) => setDrawTransports(e.target.checked)}
             />
-            Draw transports
+            <span className="switch-track" aria-hidden="true" />
+            Transports
           </label>
-          {!finalsOnly && <>
-          <button
-            type="button"
-            disabled={!maxStep}
-            onClick={() => {
-              if (completed) {
-                setStep(0);
-                setPlaying(true);
-                return;
-              }
-              setPlaying((p) => !p);
-            }}
-          >
-            {playing ? "Pause" : "Play"}
-          </button>
-          <button
-            type="button"
-            disabled={!maxStep}
-            onClick={() => {
-              setStep(0);
-              setPlaying(true);
-            }}
-          >
-            Restart
-          </button>
-          <label className="speed-control">
-            <input
-              type="range"
-              min={0}
-              max={4}
-              step={0.01}
-              value={Math.log10(stepsPerSecond)}
-              onChange={(e) =>
-                setStepsPerSecond(
-                  Math.max(
-                    1,
-                    Math.min(10000, Math.round(10 ** Number(e.target.value))),
-                  ),
-                )
-              }
-            />
-            <span>
-              {stepsPerSecond.toLocaleString()}
-              <span className="per-second">/sec</span>
-            </span>
-          </label>
-          </>}
-          <span className="zoom-hint">scroll to zoom</span>
-          {!finalsOnly && <span className="step-counter">{step.toLocaleString()} / {maxStep.toLocaleString()}</span>}
         </div>
         {error && <p className="stale-banner">{error}</p>}
-      </section>
+      </header>
+
+      <nav className="gallery" aria-label="Artworks">
+        <div className="gallery-heading">
+          <span>Gallery</span>
+          <span className="gallery-count">{sequences.length}</span>
+        </div>
+        <ul className="gallery-list">
+          {gallerySections.map((section) => {
+            if (section.kind === "single") {
+              const option = section.option;
+              const active = option.id === activeSequenceId;
+              return (
+                <li key={option.id}>
+                  <button
+                    type="button"
+                    className={`gallery-item${active ? " active" : ""}`}
+                    aria-current={active ? "true" : undefined}
+                    onClick={() => void loadSequence(option)}
+                  >
+                    <span className="item-dot" aria-hidden="true" />
+                    <span className="item-name">{option.label}</span>
+                  </button>
+                </li>
+              );
+            }
+            const open = openGroups.has(section.name);
+            const containsActive = section.options.some((option) => option.id === activeSequenceId);
+            return (
+              <li key={`group:${section.name}`} className={`gallery-group${open ? " open" : ""}`}>
+                <button
+                  type="button"
+                  className={`gallery-item group-toggle${containsActive ? " has-active" : ""}`}
+                  aria-expanded={open}
+                  onClick={() =>
+                    setOpenGroups((current) => {
+                      const next = new Set(current);
+                      if (next.has(section.name)) next.delete(section.name);
+                      else next.add(section.name);
+                      return next;
+                    })
+                  }
+                >
+                  <ChevronIcon />
+                  <span className="item-name">{section.name}</span>
+                  <span className="gallery-count">{section.options.length}</span>
+                </button>
+                {open && (
+                  <ul className="group-items">
+                    {section.options.map((option) => {
+                      const active = option.id === activeSequenceId;
+                      return (
+                        <li key={option.id}>
+                          <button
+                            type="button"
+                            className={`chip${active ? " active" : ""}`}
+                            aria-current={active ? "true" : undefined}
+                            title={option.label}
+                            onClick={() => void loadSequence(option)}
+                          >
+                            {option.shortLabel ?? option.label}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+      <p className="hint">Drag to pan · scroll or pinch to zoom · ← → to browse</p>
+    </aside>
+  );
+
+  return (
+    <div className={`svg-viewer-page layout-${layout.mode}`}>
       <section className="panel svg-viewer-canvas-panel">
         <div className="physical-canvas-wrap">
           <canvas
@@ -1403,6 +1662,7 @@ export function ThreadSequenceViewer() {
             onPointerDown={(e) => {
               const canvas = lineCanvasRef.current;
               if (!canvas) return;
+              if (drawerOpen) setDrawerOpen(false);
               activePointersRef.current.set(e.pointerId, {
                 x: e.clientX,
                 y: e.clientY,
@@ -1473,6 +1733,92 @@ export function ThreadSequenceViewer() {
           />
         </div>
       </section>
+
+      {layout.mode === "overlay" && (
+        <>
+          <button
+            type="button"
+            className="floating-button floating-menu"
+            aria-label="Open gallery and controls"
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen(true)}
+          >
+            <MenuIcon />
+          </button>
+          {!finalsOnly && (
+            <button
+              type="button"
+              className="floating-button floating-play"
+              aria-label={playing ? "Pause" : "Play"}
+              disabled={!maxStep}
+              onClick={togglePlay}
+            >
+              {playing ? <PauseIcon /> : <PlayIcon />}
+            </button>
+          )}
+        </>
+      )}
+      {zoomed && (
+        <button
+          type="button"
+          className="floating-button floating-fit"
+          aria-label="Fit artwork to screen"
+          title="Fit to screen"
+          onClick={resetView}
+        >
+          <FitIcon />
+        </button>
+      )}
+      {panel}
     </div>
+  );
+}
+
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+      {children}
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return <Icon><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" /></Icon>;
+}
+
+function PauseIcon() {
+  return <Icon><path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" /></Icon>;
+}
+
+function RestartIcon() {
+  return (
+    <Icon>
+      <path d="M5 12a7 7 0 1 0 2.05-4.95" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M5 4v4.5h4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
+  );
+}
+
+function MenuIcon() {
+  return <Icon><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></Icon>;
+}
+
+function CloseIcon() {
+  return <Icon><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></Icon>;
+}
+
+function ChevronIcon() {
+  return (
+    <svg className="chevron" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+      <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FitIcon() {
+  return (
+    <Icon>
+      <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </Icon>
   );
 }

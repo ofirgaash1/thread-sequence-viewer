@@ -16,6 +16,16 @@ const sequenceOrder = [
   "ofir",
 ];
 
+/** Gallery groups: artworks of one subject are listed together under the group name, each by its short label. */
+const sequenceGroups = {
+  "mona-641-794": { group: "Mona Lisa", shortLabel: "641.794" },
+  "mona-641-404": { group: "Mona Lisa", shortLabel: "641.404" },
+  "final-642": { group: "Mona Lisa", shortLabel: "Final 642" },
+  "seed-764": { group: "Mona Lisa", shortLabel: "Seed 764" },
+  "new-mona-lisa": { group: "Mona Lisa", shortLabel: "New" },
+  "mona-lisa": { group: "Mona Lisa", shortLabel: "Original" },
+};
+
 function humanizeZipName(filename) {
   const base = filename.replace(/\.zip$/i, "");
   return base
@@ -75,6 +85,7 @@ export function generateSequenceManifest() {
     id: zipFilenameToId(file),
     label: humanizeZipName(file),
     file: sequenceZipUrlName(file),
+    ...sequenceGroups[zipFilenameToId(file)],
   }));
 
   const manifestSource = [
@@ -84,6 +95,8 @@ export function generateSequenceManifest() {
     "  id: string;",
     "  label: string;",
     "  file: string;",
+    "  group?: string;",
+    "  shortLabel?: string;",
     "};",
     "",
     `export const SEQUENCE_MANIFEST: SequenceManifestEntry[] = ${JSON.stringify(manifest, null, 2)};`,
