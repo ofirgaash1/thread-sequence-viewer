@@ -179,6 +179,33 @@ function manifestEntryToOption(entry: SequenceManifestEntry): SequenceOption {
   };
 }
 
+/** Artworks published from Peel Studio: sequences/manifest.json (newest first), read at runtime so publishing
+ * needs no rebuild. Built-in sequences (the build's manifest) follow; an id in both is listed once. */
+type PublishedEntry = { id: string; label: string; file: string };
+
+async function fetchPublishedSequences(): Promise<SequenceOption[]> {
+  try {
+    const response = await fetch(`${import.meta.env.BASE_URL}sequences/manifest.json`, { cache: "no-cache" });
+    if (!response.ok) return [];
+    const data = (await response.json()) as { sequences?: PublishedEntry[] };
+    return (data.sequences ?? [])
+      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.file === "string")
+      .map((entry) => manifestEntryToOption({ id: entry.id, label: entry.label || entry.id, file: entry.file }));
+  } catch {
+    return [];
+  }
+}
+
+function mergeSequences(first: SequenceOption[], then: SequenceOption[]): SequenceOption[] {
+  const seen = new Set(first.map((option) => option.id));
+  return [...first, ...then.filter((option) => !seen.has(option.id))];
+}
+
+/** ?seq=<id>: open that artwork first (links from Peel Studio's Publish). */
+function sequenceParam(): string | null {
+  return new URLSearchParams(window.location.search).get("seq");
+}
+
 function ratioParam(): number | null {
   const value = new URLSearchParams(window.location.search).get("ratio");
   if (value === null) return null;
@@ -822,10 +849,10 @@ export function ThreadSequenceViewer() {
   const requestedSequenceRef = useRef<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [stepsPerSecond, setStepsPerSecond] = useState(3500);
-  const sequences = useMemo(
-    () => SEQUENCE_MANIFEST.map(manifestEntryToOption),
-    [],
+  const [sequences, setSequences] = useState<SequenceOption[]>(() =>
+    SEQUENCE_MANIFEST.map(manifestEntryToOption),
   );
+  const [publishedChecked, setPublishedChecked] = useState(false);
   const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
   const initialSequenceLoadedRef = useRef(false);
   const [canvasResizeTick, setCanvasResizeTick] = useState(0);
@@ -1103,6 +1130,9 @@ export function ThreadSequenceViewer() {
       if (loadId !== sequenceLoadRef.current) return;
       setSequence(loaded.sequence);
       setActiveSequenceId(option.id);
+      const url = new URL(window.location.href);
+      url.searchParams.set("seq", option.id);
+      window.history.replaceState(null, "", url);
       setStep(0);
       setPlaying(!finalsOnlyRef.current);
     } catch (e) {
@@ -1129,14 +1159,28 @@ export function ThreadSequenceViewer() {
   }, [loadSequence, sequences]);
 
   useEffect(() => {
+    let alive = true;
+    void fetchPublishedSequences().then((published) => {
+      if (!alive) return;
+      if (published.length) setSequences((builtIn) => mergeSequences(published, builtIn));
+      setPublishedChecked(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!publishedChecked) return;
     if (sequences.length === 0) {
       setError("No sequences found in public/sequences/");
       return;
     }
     if (initialSequenceLoadedRef.current) return;
     initialSequenceLoadedRef.current = true;
-    void loadSequence(sequences[0]!);
-  }, [loadSequence, sequences]);
+    const wanted = sequenceParam();
+    void loadSequence(sequences.find((option) => option.id === wanted) ?? sequences[0]!);
+  }, [loadSequence, publishedChecked, sequences]);
 
   useEffect(() => {
     return () => {
