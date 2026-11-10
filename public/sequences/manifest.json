@@ -1,6 +1,12 @@
 {
   "sequences": [
     {
+      "id": "boreas-921b42",
+      "label": "Boreas",
+      "file": "boreas-921b42.zip",
+      "publishedAt": "2026-11-10T04:34:03.727Z"
+    },
+    {
       "id": "pearl-earring-b74dfe",
       "label": "Pearl Earring",
       "file": "pearl-earring-b74dfe.zip",
