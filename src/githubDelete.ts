@@ -39,6 +39,8 @@ export function storeToken(token: string | null): void {
 async function github<T>(token: string, path: string, init: RequestInit = {}, accept = "application/vnd.github+json"): Promise<T> {
   const response = await fetch(`https://api.github.com/repos/${repoSlug()}${path}`, {
     ...init,
+    // GitHub's API responses are cacheable for 60 s; a cached ref makes a second delete build on a stale head.
+    cache: "no-store",
     headers: {
       Accept: accept,
       Authorization: `Bearer ${token}`,
@@ -109,12 +111,19 @@ async function commitDeletion(token: string, entry: { id: string; label: string;
   });
 }
 
-/** Removes the artwork from the repo in one commit on main. Retries once if someone pushed in between. */
+/**
+ * Removes the artwork from the repo in one commit on main. If main moved in between (a second delete, or the Build
+ * site Action committing the rebuild of the previous one), GitHub answers 422 and the commit is redone on the new
+ * head, a few times with a short pause.
+ */
 export async function deleteArtwork(token: string, entry: { id: string; label: string; file: string }): Promise<void> {
-  try {
-    await commitDeletion(token, entry);
-  } catch (error) {
-    if ((error as { status?: number }).status !== 422) throw error;
-    await commitDeletion(token, entry);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await commitDeletion(token, entry);
+      return;
+    } catch (error) {
+      if ((error as { status?: number }).status !== 422 || attempt >= 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+    }
   }
 }
