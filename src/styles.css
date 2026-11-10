@@ -197,6 +197,35 @@ input[type="range"]:focus-visible {
   white-space: nowrap;
 }
 
+.heading-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.share-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 15px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.share-button:hover {
+  border-color: rgba(150, 165, 190, 0.4);
+  color: var(--text);
+}
+
+.share-button.copied {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .now-meta {
   display: flex;
   justify-content: space-between;

@@ -938,6 +938,7 @@ export function ThreadSequenceViewer() {
   const [sequences, setSequences] = useState<SequenceOption[]>([]);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SequenceOption | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
   const initialSequenceLoadedRef = useRef(false);
   const [canvasResizeTick, setCanvasResizeTick] = useState(0);
@@ -1444,6 +1445,29 @@ export function ThreadSequenceViewer() {
     }
   };
 
+  /** Shares the artwork's share page (a/<id>/): unlike ?seq=, it gives chat apps a preview image. Phones get the
+   * system share sheet; elsewhere the link is copied. */
+  const shareArtwork = async (option: SequenceOption) => {
+    const url = new URL(`${import.meta.env.BASE_URL}a/${encodeURIComponent(option.id)}/`, window.location.origin).href;
+    const title = option.group && option.shortLabel ? `${option.group} · ${option.shortLabel}` : option.label;
+    if (navigator.share && window.matchMedia("(hover: none)").matches) {
+      try {
+        await navigator.share({ title, url });
+        return;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt("Copy this link", url);
+      return;
+    }
+    setLinkCopied(true);
+    window.setTimeout(() => setLinkCopied(false), 1600);
+  };
+
   const resetView = () => {
     const identity = { x: 0, y: 0, k: 1 };
     zoomTransformRef.current = identity;
@@ -1472,16 +1496,29 @@ export function ThreadSequenceViewer() {
               {activeOption ? activeOption.shortLabel ?? activeOption.label : "Loading…"}
             </h1>
           </div>
-          {layout.mode === "overlay" && (
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Close panel"
-              onClick={() => setDrawerOpen(false)}
-            >
-              <CloseIcon />
-            </button>
-          )}
+          <div className="heading-actions">
+            {activeOption && (
+              <button
+                type="button"
+                className={`share-button${linkCopied ? " copied" : ""}`}
+                title="Copy a link that shows this artwork's preview in chats"
+                onClick={() => void shareArtwork(activeOption)}
+              >
+                <LinkIcon />
+                <span>{linkCopied ? "Copied" : "Share"}</span>
+              </button>
+            )}
+            {layout.mode === "overlay" && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close panel"
+                onClick={() => setDrawerOpen(false)}
+              >
+                <CloseIcon />
+              </button>
+            )}
+          </div>
         </div>
 
         {finalsOnly ? (
@@ -1838,6 +1875,20 @@ function RestartIcon() {
       <path d="M5 12a7 7 0 1 0 2.05-4.95" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
       <path d="M5 4v4.5h4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </Icon>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+      <path
+        d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
   );
 }
 
