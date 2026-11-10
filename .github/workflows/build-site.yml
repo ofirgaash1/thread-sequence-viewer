@@ -1,0 +1,63 @@
+# Rebuilds what Pages serves (docs/) whenever something it is built from changes, so a push of source edits alone
+# (src/, styles, index.html) still goes live, and keeps link previews (previews/<id>.jpg and the share pages a/<id>/)
+# in step with the gallery: publishing from Peel Studio and deleting from the site only push the zip and
+# manifest.json. `npm run build` renders previews for new or changed artworks, removes those of deleted ones, and
+# rebuilds the app into docs/. Pushes made with GITHUB_TOKEN do not start workflows, so the commit does not
+# retrigger this; Pages does pick it up.
+name: Build site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "public/sequences/**"
+      - "docs/sequences/**"
+      - "scripts/**"
+      - "src/**"
+      - "public/**"
+      - "!public/previews/**"
+      - "!public/a/**"
+      - "index.html"
+      - "vite.config.ts"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-site
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Commit and push
+        run: |
+          git add -A docs public
+          if git diff --cached --quiet; then
+            echo "Site already up to date"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -q -m "Rebuild site"
+          for attempt in 1 2 3; do
+            git pull --rebase -q origin main && git push -q origin HEAD:main && exit 0
+            sleep 5
+          done
+          exit 1
