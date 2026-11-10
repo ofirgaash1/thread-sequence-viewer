@@ -281,7 +281,18 @@ async function fetchGallery(): Promise<SequenceOption[]> {
     );
 }
 
-/** ?seq=<id>: open that artwork first (links from Peel Studio's Publish). */
+/** The artwork's share page, a/<id>/ (other query parameters kept). The address bar shows it, so a copied address
+ * also gives chat apps that artwork's preview; opening it forwards to ?seq=<id>, which this page then reads. */
+function shareUrl(id: string): string {
+  const url = new URL(`${import.meta.env.BASE_URL}a/${encodeURIComponent(id)}/`, window.location.origin);
+  const params = new URLSearchParams(window.location.search);
+  params.delete("seq");
+  url.search = params.toString();
+  url.hash = window.location.hash;
+  return url.href;
+}
+
+/** ?seq=<id>: open that artwork first (share pages and Peel Studio's Publish link here). */
 function sequenceParam(): string | null {
   return new URLSearchParams(window.location.search).get("seq");
 }
@@ -1231,9 +1242,7 @@ export function ThreadSequenceViewer() {
       if (loadId !== sequenceLoadRef.current) return;
       setSequence(loaded.sequence);
       setActiveSequenceId(option.id);
-      const url = new URL(window.location.href);
-      url.searchParams.set("seq", option.id);
-      window.history.replaceState(null, "", url);
+      window.history.replaceState(null, "", shareUrl(option.id));
       setStep(0);
       setPlaying(!finalsOnlyRef.current);
     } catch (e) {

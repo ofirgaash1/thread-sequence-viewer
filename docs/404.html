@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>String art</title>
+    <script>
+      // GitHub Pages serves this for any missing path. A share link (a/<id>/) whose page is not there yet (the
+      // preview Action runs a minute after publishing) or anymore (deleted) still opens the viewer at that artwork;
+      // the viewer falls back to the newest artwork when the id is not in the gallery.
+      (function () {
+        var parts = location.pathname.split("/").filter(Boolean);
+        var base = "/" + (parts[0] ? parts[0] + "/" : "");
+        var share = location.pathname.match(/\/a\/([^/]+)\/?$/);
+        location.replace(base + (share ? "?seq=" + share[1] : "") + location.hash);
+      })();
+    </script>
+  </head>
+  <body style="background: #05070a"></body>
+</html>

@@ -2,7 +2,7 @@
 // not run JavaScript, and every artwork shares one page (index.html?seq=…), so each artwork gets:
 //   previews/<id>.jpg      its finished artwork, 1200×630, the circle centred on the viewer's background
 //   a/<id>/index.html      a share page whose tags name that image; it forwards visitors to ?seq=<id> at once
-// plus previews/site.jpg (the newest artwork) for index.html's own tags. Written to public/ and docs/ (Pages serves
+// plus previews/site.jpg (a collage of a few artworks) for index.html's own tags, which ?seq= links also show. Written to public/ and docs/ (Pages serves
 // docs/ and a build recreates docs/ from public/), skipping artworks whose zip has not changed since the last run
 // (previews/index.json), and removing the files of artworks no longer in the gallery. Run by the build and by the
 // GitHub Action on every push, so publishing from Peel Studio and deleting from the site need nothing else.
@@ -10,7 +10,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { strFromU8, unzipSync } from "fflate";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -115,6 +115,61 @@ function renderPreview(sequence) {
   return out.encodeSync("jpeg", JPEG_QUALITY);
 }
 
+/** Same rule as the viewer: untagged artworks named after the Mona Lisa belong to that group. */
+function galleryGroup(entry) {
+  return entry.group ?? (/\bmona\b/i.test(entry.label ?? "") ? "Mona Lisa" : null);
+}
+
+/** Up to three artworks side by side, one per gallery group (newest first), cut from their own previews. */
+async function renderCollage(entries) {
+  const picked = [];
+  const groups = new Set();
+  for (const entry of entries) {
+    const group = galleryGroup(entry) ?? `single:${entry.id}`;
+    if (groups.has(group)) continue;
+    groups.add(group);
+    picked.push(entry);
+    if (picked.length === 3) break;
+  }
+  if (!picked.length) return null;
+
+  const canvas = createCanvas(WIDTH, HEIGHT);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = BACKGROUND;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  const sourceRadius = HEIGHT / 2 - MARGIN;
+  const gap = 28;
+  const radius = Math.min(sourceRadius, (WIDTH - gap * (picked.length + 1)) / picked.length / 2);
+  const total = picked.length * radius * 2 + (picked.length - 1) * gap;
+  for (const [i, entry] of picked.entries()) {
+    const image = await loadImage(path.join(root, "public", "previews", `${entry.id}.jpg`));
+    const cx = (WIDTH - total) / 2 + radius + i * (radius * 2 + gap);
+    const cy = HEIGHT / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.drawImage(
+      image,
+      WIDTH / 2 - sourceRadius,
+      HEIGHT / 2 - sourceRadius,
+      sourceRadius * 2,
+      sourceRadius * 2,
+      cx - radius,
+      cy - radius,
+      radius * 2,
+      radius * 2,
+    );
+    ctx.restore();
+    ctx.strokeStyle = "#5b6475";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  return canvas.encodeSync("jpeg", JPEG_QUALITY);
+}
+
 function displayTitle(entry) {
   return entry.group && entry.shortLabel ? `${entry.group} · ${entry.shortLabel}` : entry.label || entry.id;
 }
@@ -154,7 +209,7 @@ function sharePage(entry, version) {
 `;
 }
 
-export function buildPreviews({ log = console.log } = {}) {
+export async function buildPreviews({ log = console.log } = {}) {
   const sequencesDir = path.join(root, "public", "sequences");
   const manifest = readJson(path.join(sequencesDir, "manifest.json"), { sequences: [] });
   const entries = (manifest.sequences ?? []).filter(
@@ -183,12 +238,11 @@ export function buildPreviews({ log = console.log } = {}) {
     }
   }
 
-  // index.html's own preview: the newest artwork.
-  const newest = entries.find((entry) => index[entry.id]);
-  if (newest) {
-    const source = path.join(root, "public", "previews", `${newest.id}.jpg`);
+  // index.html's own preview, which ?seq= links show too: a collage, so it never passes for one artwork.
+  const collage = await renderCollage(entries.filter((entry) => index[entry.id]));
+  if (collage) {
     for (const outRoot of OUTPUT_ROOTS) {
-      if (writeIfChanged(path.join(outRoot, "previews", "site.jpg"), fs.readFileSync(source))) changed++;
+      if (writeIfChanged(path.join(outRoot, "previews", "site.jpg"), collage)) changed++;
     }
   }
 
@@ -217,4 +271,4 @@ export function buildPreviews({ log = console.log } = {}) {
   return changed;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) buildPreviews();
+if (process.argv[1] === fileURLToPath(import.meta.url)) await buildPreviews();
