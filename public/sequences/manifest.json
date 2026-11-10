@@ -52,11 +52,6 @@
       "file": "mona-lisa.zip",
       "group": "Mona Lisa",
       "shortLabel": "Original"
-    },
-    {
-      "id": "ofir",
-      "label": "Ofir",
-      "file": "ofir.zip"
     }
   ]
 }
