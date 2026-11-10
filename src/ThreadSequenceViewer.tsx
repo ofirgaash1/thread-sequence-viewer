@@ -189,6 +189,35 @@ const SIDE_PANEL_MIN = 240;
 const SIDE_PANEL_MAX = 380;
 const BOTTOM_PANEL_MIN = 200;
 
+// Speed slider: an S-curve centred on SPEED_MID, so the middle of the track (where people actually play) is
+// fine-grained and the ends sweep quickly out to 1 and SPEED_MAX. Slider position u is in [-1, 1].
+const SPEED_MAX = 10000;
+const SPEED_MID = SPEED_MAX / 2;
+const SPEED_LINEAR = 0.2; // slope share at the centre; the rest is cubic
+const DEFAULT_SPEED = 4500;
+
+function sliderShape(u: number): number {
+  return SPEED_LINEAR * u + (1 - SPEED_LINEAR) * u * u * u;
+}
+
+function speedFromSlider(u: number): number {
+  const raw = SPEED_MID + SPEED_MID * sliderShape(u);
+  const rounded = raw >= 100 ? Math.round(raw / 10) * 10 : Math.round(raw);
+  return Math.max(1, Math.min(SPEED_MAX, rounded));
+}
+
+function sliderFromSpeed(speed: number): number {
+  const target = (speed - SPEED_MID) / SPEED_MID;
+  let lo = -1;
+  let hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (sliderShape(mid) < target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 function computeLayout(width: number, height: number): ViewerLayout {
   const size = Math.min(width, height);
   if (width - height >= SIDE_PANEL_MIN) {
@@ -945,7 +974,7 @@ export function ThreadSequenceViewer() {
   const sequenceLoadRef = useRef(0);
   const requestedSequenceRef = useRef<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [stepsPerSecond, setStepsPerSecond] = useState(3500);
+  const [stepsPerSecond, setStepsPerSecond] = useState(DEFAULT_SPEED);
   const [sequences, setSequences] = useState<SequenceOption[]>([]);
   const [galleryLoaded, setGalleryLoaded] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<SequenceOption | null>(null);
@@ -1584,16 +1613,13 @@ export function ThreadSequenceViewer() {
                 </span>
                 <input
                   type="range"
-                  min={0}
-                  max={4}
-                  step={0.01}
-                  value={Math.log10(stepsPerSecond)}
+                  min={-1}
+                  max={1}
+                  step={0.001}
+                  value={sliderFromSpeed(stepsPerSecond)}
                   aria-label="Threads per second"
-                  onChange={(e) =>
-                    setStepsPerSecond(
-                      Math.max(1, Math.min(10000, Math.round(10 ** Number(e.target.value)))),
-                    )
-                  }
+                  onChange={(e) => setStepsPerSecond(speedFromSlider(Number(e.target.value)))}
+                  onDoubleClick={() => setStepsPerSecond(DEFAULT_SPEED)}
                 />
               </label>
             </div>
