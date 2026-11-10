@@ -4,13 +4,58 @@
       "id": "fran-ois-martin-kavel-nymphe-d-eau-d99ddf",
       "label": "François Martin Kavel Nymphe d'eau",
       "file": "fran-ois-martin-kavel-nymphe-d-eau-d99ddf.zip",
-      "publishedAt": "2026-11-10T00:28:08.236Z"
+      "publishedAt": "2026-11-10T00:28:08.226Z"
     },
     {
       "id": "nymphe-d-eau-844ec4",
       "label": "Nymphe d'eau",
       "file": "nymphe-d-eau-844ec4.zip",
-      "publishedAt": "2026-11-09T22:43:09.141Z"
+      "publishedAt": "2026-11-09T22:43:09.139Z"
+    },
+    {
+      "id": "mona-641-404",
+      "label": "Mona 641.404",
+      "file": "mona-641.404.zip",
+      "group": "Mona Lisa",
+      "shortLabel": "641.404"
+    },
+    {
+      "id": "final-642",
+      "label": "Final 642",
+      "file": "final-642.zip",
+      "group": "Mona Lisa",
+      "shortLabel": "Final 642"
+    },
+    {
+      "id": "seed-764",
+      "label": "Seed 764",
+      "file": "seed-764.zip",
+      "group": "Mona Lisa",
+      "shortLabel": "Seed 764"
+    },
+    {
+      "id": "new-mona-lisa",
+      "label": "New Mona Lisa",
+      "file": "new-mona-lisa.zip",
+      "group": "Mona Lisa",
+      "shortLabel": "New"
+    },
+    {
+      "id": "mona-lisa",
+      "label": "Mona Lisa",
+      "file": "mona-lisa.zip",
+      "group": "Mona Lisa",
+      "shortLabel": "Original"
+    },
+    {
+      "id": "duck",
+      "label": "Duck",
+      "file": "duck.zip"
+    },
+    {
+      "id": "ofir",
+      "label": "Ofir",
+      "file": "ofir.zip"
     }
   ]
 }

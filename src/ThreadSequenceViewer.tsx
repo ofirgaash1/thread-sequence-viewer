@@ -8,10 +8,8 @@ import React, {
 } from "react";
 import { strFromU8, unzipSync } from "fflate";
 import { WebGLThreadRenderer } from "./WebGLThreadRenderer";
-import {
-  SEQUENCE_MANIFEST,
-  type SequenceManifestEntry,
-} from "./generated/sequenceManifest";
+import { DeleteDialog } from "./DeleteDialog";
+import { storedToken } from "./githubDelete";
 
 type PhysicalDrawInstruction =
   | {
@@ -50,6 +48,8 @@ type PhysicalSequenceExport = {
 type SequenceOption = {
   id: string;
   label: string;
+  /** Zip name in sequences/ (what deleting removes). */
+  file: string;
   url: string;
   /** Gallery group (e.g. "Mona Lisa"); artworks sharing one are listed together. */
   group?: string;
@@ -250,43 +250,35 @@ function isPhysicalSequenceExport(value: unknown): value is PhysicalSequenceExpo
   return Array.isArray(maybe.instructions);
 }
 
-function manifestEntryToOption(entry: SequenceManifestEntry): SequenceOption {
+/** sequences/manifest.json: the gallery, in display order (Peel Studio adds new artworks at the top). It is read
+ * at runtime, so publishing or deleting an artwork needs no rebuild. */
+type ManifestEntry = { id: string; label: string; file: string; group?: string; shortLabel?: string };
+
+function manifestEntryToOption(entry: ManifestEntry): SequenceOption {
   return {
     id: entry.id,
     label: entry.label,
+    file: entry.file,
     url: `${import.meta.env.BASE_URL}sequences/${encodeURIComponent(entry.file)}`,
     ...(entry.group ? { group: entry.group, shortLabel: entry.shortLabel } : inferGroup(entry.label)),
   };
 }
 
-/** Artworks published from Peel Studio: sequences/manifest.json (newest first), read at runtime so publishing
- * needs no rebuild. Built-in sequences (the build's manifest) follow; an id in both is listed once. */
-type PublishedEntry = { id: string; label: string; file: string; group?: string; shortLabel?: string };
-
-async function fetchPublishedSequences(): Promise<SequenceOption[]> {
-  try {
-    const response = await fetch(`${import.meta.env.BASE_URL}sequences/manifest.json`, { cache: "no-cache" });
-    if (!response.ok) return [];
-    const data = (await response.json()) as { sequences?: PublishedEntry[] };
-    return (data.sequences ?? [])
-      .filter((entry) => entry && typeof entry.id === "string" && typeof entry.file === "string")
-      .map((entry) =>
-        manifestEntryToOption({
-          id: entry.id,
-          label: entry.label || entry.id,
-          file: entry.file,
-          group: typeof entry.group === "string" ? entry.group : undefined,
-          shortLabel: typeof entry.shortLabel === "string" ? entry.shortLabel : undefined,
-        }),
-      );
-  } catch {
-    return [];
-  }
-}
-
-function mergeSequences(first: SequenceOption[], then: SequenceOption[]): SequenceOption[] {
-  const seen = new Set(first.map((option) => option.id));
-  return [...first, ...then.filter((option) => !seen.has(option.id))];
+async function fetchGallery(): Promise<SequenceOption[]> {
+  const response = await fetch(`${import.meta.env.BASE_URL}sequences/manifest.json`, { cache: "no-cache" });
+  if (!response.ok) throw new Error(`Could not load the gallery (${response.status})`);
+  const data = (await response.json()) as { sequences?: ManifestEntry[] };
+  return (data.sequences ?? [])
+    .filter((entry) => entry && typeof entry.id === "string" && typeof entry.file === "string")
+    .map((entry) =>
+      manifestEntryToOption({
+        id: entry.id,
+        label: entry.label || entry.id,
+        file: entry.file,
+        group: typeof entry.group === "string" ? entry.group : undefined,
+        shortLabel: typeof entry.shortLabel === "string" ? entry.shortLabel : undefined,
+      }),
+    );
 }
 
 /** ?seq=<id>: open that artwork first (links from Peel Studio's Publish). */
@@ -943,10 +935,9 @@ export function ThreadSequenceViewer() {
   const requestedSequenceRef = useRef<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [stepsPerSecond, setStepsPerSecond] = useState(3500);
-  const [sequences, setSequences] = useState<SequenceOption[]>(() =>
-    SEQUENCE_MANIFEST.map(manifestEntryToOption),
-  );
-  const [publishedChecked, setPublishedChecked] = useState(false);
+  const [sequences, setSequences] = useState<SequenceOption[]>([]);
+  const [galleryLoaded, setGalleryLoaded] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<SequenceOption | null>(null);
   const [activeSequenceId, setActiveSequenceId] = useState<string | null>(null);
   const initialSequenceLoadedRef = useRef(false);
   const [canvasResizeTick, setCanvasResizeTick] = useState(0);
@@ -1280,27 +1271,31 @@ export function ThreadSequenceViewer() {
 
   useEffect(() => {
     let alive = true;
-    void fetchPublishedSequences().then((published) => {
-      if (!alive) return;
-      if (published.length) setSequences((builtIn) => mergeSequences(published, builtIn));
-      setPublishedChecked(true);
-    });
+    fetchGallery()
+      .then((gallery) => {
+        if (!alive) return;
+        setSequences(gallery);
+        setGalleryLoaded(true);
+      })
+      .catch((e) => {
+        if (alive) setError(e instanceof Error ? e.message : String(e));
+      });
     return () => {
       alive = false;
     };
   }, []);
 
   useEffect(() => {
-    if (!publishedChecked) return;
+    if (!galleryLoaded) return;
     if (sequences.length === 0) {
-      setError("No sequences found in public/sequences/");
+      setError("The gallery is empty");
       return;
     }
     if (initialSequenceLoadedRef.current) return;
     initialSequenceLoadedRef.current = true;
     const wanted = sequenceParam();
     void loadSequence(sequences.find((option) => option.id === wanted) ?? sequences[0]!);
-  }, [loadSequence, publishedChecked, sequences]);
+  }, [galleryLoaded, loadSequence, sequences]);
 
   useEffect(() => {
     return () => {
@@ -1438,6 +1433,17 @@ export function ThreadSequenceViewer() {
     setPlaying((p) => !p);
   };
 
+  /** After a delete: drop it here at once (Pages takes ~1 minute to catch up); if it was showing, show the next. */
+  const removeFromGallery = (deleted: { id: string }) => {
+    setDeleteTarget(null);
+    const index = galleryOrder.findIndex((option) => option.id === deleted.id);
+    const remaining = galleryOrder.filter((option) => option.id !== deleted.id);
+    setSequences((current) => current.filter((option) => option.id !== deleted.id));
+    if (requestedSequenceRef.current === deleted.id && remaining.length) {
+      void loadSequence(remaining[Math.min(Math.max(0, index), remaining.length - 1)]!);
+    }
+  };
+
   const resetView = () => {
     const identity = { x: 0, y: 0, k: 1 };
     zoomTransformRef.current = identity;
@@ -1446,7 +1452,7 @@ export function ThreadSequenceViewer() {
 
   const panel = (
     <aside
-      className={`viewer-panel panel-${layout.mode}${drawerOpen ? " open" : ""}`}
+      className={`viewer-panel panel-${layout.mode}${drawerOpen ? " open" : ""}${storedToken() ? " has-token" : ""}`}
       style={
         layout.panel
           ? {
@@ -1587,7 +1593,7 @@ export function ThreadSequenceViewer() {
               const option = section.option;
               const active = option.id === activeSequenceId;
               return (
-                <li key={option.id}>
+                <li key={option.id} className="gallery-entry">
                   <button
                     type="button"
                     className={`gallery-item${active ? " active" : ""}`}
@@ -1597,6 +1603,7 @@ export function ThreadSequenceViewer() {
                     <span className="item-dot" aria-hidden="true" />
                     <span className="item-name">{option.label}</span>
                   </button>
+                  <DeleteButton label={option.label} onClick={() => setDeleteTarget(option)} />
                 </li>
               );
             }
@@ -1626,7 +1633,7 @@ export function ThreadSequenceViewer() {
                     {section.options.map((option) => {
                       const active = option.id === activeSequenceId;
                       return (
-                        <li key={option.id}>
+                        <li key={option.id} className="chip-entry">
                           <button
                             type="button"
                             className={`chip${active ? " active" : ""}`}
@@ -1636,6 +1643,7 @@ export function ThreadSequenceViewer() {
                           >
                             {option.shortLabel ?? option.label}
                           </button>
+                          <DeleteButton label={option.label} onClick={() => setDeleteTarget(option)} />
                         </li>
                       );
                     })}
@@ -1647,6 +1655,13 @@ export function ThreadSequenceViewer() {
         </ul>
       </nav>
       <p className="hint">Drag to pan · scroll or pinch to zoom · ← → to browse</p>
+      {deleteTarget && (
+        <DeleteDialog
+          artwork={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onDeleted={removeFromGallery}
+        />
+      )}
     </aside>
   );
 
@@ -1771,6 +1786,33 @@ export function ThreadSequenceViewer() {
       )}
       {panel}
     </div>
+  );
+}
+
+/** Shown on hover over a gallery entry (always on touch screens once a token is saved on the device). */
+function DeleteButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="delete-button"
+      aria-label={`Delete ${label}`}
+      title="Delete from the site"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+        <path
+          d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12M10.5 10.5v5.5M13.5 10.5v5.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
   );
 }
 

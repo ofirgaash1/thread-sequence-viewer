@@ -10,4 +10,6 @@ Line thickness comes from the exported JSON `ratio` field (circle diameter / thr
 ?ratio=600
 ```
 
-To add another sequence, drop a `.zip` in `public/sequences/` and rebuild. A button is created automatically from the filename (for example `mona-lisa.zip` -> "Mona Lisa"). Use lowercase filenames because GitHub Pages is case-sensitive. Preferred button order is set in `scripts/generateSequenceManifest.mjs`.
+The gallery is `public/sequences/manifest.json` (copied to `docs/sequences/` on build), read at runtime. Peel Studio's Publish adds artworks to it. To add one by hand, drop a lowercase `.zip` in `public/sequences/` and rebuild: unlisted zips are appended to the manifest (groups and labels for the built-in ones are set in `scripts/generateSequenceManifest.mjs`).
+
+To delete an artwork from the live site, hover it in the gallery and click the trash icon. The site asks for a GitHub fine-grained token with Contents read/write on this repository only, then commits the removal (zip and manifest entry, in both `public/` and `docs/`) through the GitHub API. Pages redeploys in about a minute. Run `git pull` locally afterwards.

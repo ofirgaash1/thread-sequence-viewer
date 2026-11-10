@@ -513,6 +513,189 @@ input[type="range"]::-moz-range-thumb {
   color: var(--accent);
 }
 
+/* Delete: a trash button that appears on hover (on touch screens, only once a token is saved here). */
+
+.gallery-entry,
+.chip-entry {
+  position: relative;
+}
+
+.delete-button {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted);
+  opacity: 0;
+  transition:
+    opacity 120ms,
+    color 120ms,
+    background 120ms;
+}
+
+.gallery-entry .delete-button {
+  top: 50%;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  transform: translateY(-50%);
+}
+
+.gallery-entry .gallery-item {
+  padding-right: 38px;
+}
+
+.chip-entry .delete-button {
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line);
+  background: #11141b;
+}
+
+.chip-entry .delete-button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.gallery-entry:hover .delete-button,
+.chip-entry:hover .delete-button,
+.delete-button:focus-visible {
+  opacity: 1;
+}
+
+.delete-button:hover {
+  background: rgba(255, 99, 99, 0.16);
+  color: #ff8b8b;
+}
+
+.chip-entry .delete-button:hover {
+  background: #3a1a1c;
+}
+
+@media (hover: none) {
+  .delete-button {
+    display: none;
+  }
+
+  .has-token .delete-button {
+    display: grid;
+    opacity: 1;
+  }
+}
+
+.delete-dialog {
+  width: min(400px, calc(100vw - 32px));
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #0d1016;
+  color: var(--text);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+.delete-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
+}
+
+.delete-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.delete-dialog h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dialog-text,
+.dialog-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.dialog-note {
+  font-size: 0.78rem;
+}
+
+.dialog-note a,
+.link-button {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.field input {
+  height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #07090d;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.field input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.dialog-error {
+  margin: 0;
+  color: #ff8b8b;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.text-button,
+.danger-button {
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.text-button {
+  color: var(--muted);
+}
+
+.text-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.danger-button {
+  background: #d9534f;
+  color: #fff;
+}
+
+.danger-button:hover:not(:disabled) {
+  background: #e5605c;
+}
+
 .hint {
   flex: none;
   margin: 0;
