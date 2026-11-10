@@ -6,7 +6,7 @@
   --muted: #8c96a8;
   --faint: #5d6678;
   --line: rgba(150, 165, 190, 0.16);
-  --panel-bg: rgba(8, 10, 14, 0.82);
+  --panel-bg: rgba(28, 30, 35, 0.3);
   --hover: rgba(255, 255, 255, 0.05);
 }
 
@@ -125,8 +125,8 @@ input[type="range"]:focus-visible {
   flex-direction: column;
   min-height: 0;
   background: var(--panel-bg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .panel-side {
