@@ -54,11 +54,6 @@
       "shortLabel": "Original"
     },
     {
-      "id": "duck",
-      "label": "Duck",
-      "file": "duck.zip"
-    },
-    {
       "id": "ofir",
       "label": "Ofir",
       "file": "ofir.zip"
