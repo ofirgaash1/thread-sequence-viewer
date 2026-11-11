@@ -1,12 +1,6 @@
 {
   "sequences": [
     {
-      "id": "pearl-10-000-192-a703fb",
-      "label": "pearl 10,000/192",
-      "file": "pearl-10-000-192-a703fb.zip",
-      "publishedAt": "2026-11-11T23:52:31.366Z"
-    },
-    {
       "id": "beatrice-cenci-3eec2a",
       "label": "Beatrice Cenci",
       "file": "beatrice-cenci-3eec2a.zip",
@@ -80,6 +74,11 @@
       "id": "pearl-10-000-256-a478f4",
       "label": "Pearl 10 000 256 A478f4",
       "file": "pearl-10-000-256-a478f4.zip"
+    },
+    {
+      "id": "pearl-10-000-192-a703fb",
+      "label": "Pearl 10 000 192 A703fb",
+      "file": "pearl-10-000-192-a703fb.zip"
     }
   ]
 }
