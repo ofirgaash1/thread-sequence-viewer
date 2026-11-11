@@ -18,7 +18,7 @@ html,
 body,
 #root {
   width: 100%;
-  height: 100%;
+  height: 100%;;
   margin: 0;
 }
 
@@ -783,4 +783,42 @@ input[type="range"]::-moz-range-thumb {
   .hint {
     display: none;
   }
+}
+
+/* 3D view (src/Viewer3D.tsx): over the 2D canvases */
+.viewer3d {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: var(--bg);
+}
+.viewer3d-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: grab;
+}
+.viewer3d-canvas:active {
+  cursor: grabbing;
+}
+.viewer3d-bar {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  opacity: 0.8;
+  pointer-events: none;
+}
+.viewer3d-bar label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  pointer-events: auto;
 }

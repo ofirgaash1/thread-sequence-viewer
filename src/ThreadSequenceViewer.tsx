@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { strFromU8, unzipSync } from "fflate";
 import { WebGLThreadRenderer } from "./WebGLThreadRenderer";
+import { Viewer3D, type Line3DInput } from "./Viewer3D";
 import { DeleteDialog } from "./DeleteDialog";
 import { storedToken } from "./githubDelete";
 
@@ -970,6 +971,8 @@ export function ThreadSequenceViewer() {
   const [playbackStep, setStep] = useState(0);
   const [finalsOnly, setFinalsOnly] = useState(false);
   const [drawTransports, setDrawTransports] = useState(true);
+  // 3D: the threads as built, stacked (src/Viewer3D.tsx); ?3d opens in it
+  const [view3d, setView3d] = useState(() => new URLSearchParams(window.location.search).has("3d"));
   const finalsOnlyRef = useRef(false);
   const sequenceLoadRef = useRef(0);
   const requestedSequenceRef = useRef<string | null>(null);
@@ -1069,6 +1072,17 @@ export function ThreadSequenceViewer() {
       };
     });
   }, [colorByName, drawTransports, instructions, nailCount]);
+  const lines3d = useMemo<Line3DInput[]>(() => {
+    if (!view3d || nailCount <= 1) return [];
+    const out: Line3DInput[] = [];
+    instructions.forEach((instr, i) => {
+      if (instr.type === "cut" || (instr.type === "transport" && !drawTransports)) return;
+      const a = nailPoint(instr.nailA, nailCount);
+      const b = nailPoint(instr.nailB, nailCount);
+      out.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y, color: colorByName.get(instr.color) ?? hashColor(instr.color), step: i + 1, nailA: instr.nailA, nailB: instr.nailB });
+    });
+    return out;
+  }, [view3d, instructions, nailCount, drawTransports, colorByName]);
   const svgScene = useMemo(() => {
     if (!sequence) return buildSvgScene(drawCommands);
     let variants = sceneCacheRef.current.get(sequence);
@@ -1650,6 +1664,11 @@ export function ThreadSequenceViewer() {
             <span className="switch-track" aria-hidden="true" />
             Transports
           </label>
+          <label className="switch" title="The threads as built, stacked on each other; drag to turn">
+            <input type="checkbox" checked={view3d} onChange={(e) => setView3d(e.target.checked)} />
+            <span className="switch-track" aria-hidden="true" />
+            3D
+          </label>
         </div>
         {error && <p className="stale-banner">{error}</p>}
       </header>
@@ -1818,6 +1837,9 @@ export function ThreadSequenceViewer() {
             className="physical-overlay-canvas"
             aria-hidden="true"
           />
+          {view3d && (
+            <Viewer3D lines={lines3d} center={{ x: CENTER, y: CENTER }} radius={RADIUS} thickness={lineWidth} nailCount={nailCount} step={step} />
+          )}
         </div>
       </section>
 
