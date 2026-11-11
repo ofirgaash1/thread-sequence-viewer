@@ -64,6 +64,11 @@
       "file": "mona-lisa.zip",
       "group": "Mona Lisa",
       "shortLabel": "Original"
+    },
+    {
+      "id": "mona-10-000-256-a66623",
+      "label": "Mona 10 000 256 A66623",
+      "file": "mona-10-000-256-a66623.zip"
     }
   ]
 }
