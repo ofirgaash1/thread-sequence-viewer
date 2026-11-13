@@ -1,6 +1,12 @@
 {
   "sequences": [
     {
+      "id": "pearl-10-000-512-25f5f8",
+      "label": "pearl 10,000/512",
+      "file": "pearl-10-000-512-25f5f8.zip",
+      "publishedAt": "2026-11-13T04:21:20.865Z"
+    },
+    {
       "id": "beatrice-cenci-3eec2a",
       "label": "Beatrice Cenci",
       "file": "beatrice-cenci-3eec2a.zip",
